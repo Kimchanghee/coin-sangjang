@@ -40,7 +40,7 @@ COPY . .
 
 # Run lint/build similarly to the Cloud Build CI image. Custom filters can be provided
 # via `--build-arg TURBO_FILTERS="backend...,frontend..."` to narrow the workload.
-RUN --mount=type=cache,target=/workspace/.turbo ./infrastructure/docker/run-turbo-checks.sh
+RUN ./infrastructure/docker/run-turbo-checks.sh
 
 # Expose the CI layer as the default image so that `docker build .` succeeds while
 # still running the repository checks during the build.
