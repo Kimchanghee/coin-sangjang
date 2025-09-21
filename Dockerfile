@@ -25,7 +25,7 @@ COPY services/trade-orchestrator/package.json services/trade-orchestrator/packag
 COPY services/risk-manager/package.json services/risk-manager/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN npm ci
 
 FROM deps AS ci
 
