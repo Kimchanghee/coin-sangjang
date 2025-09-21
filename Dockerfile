@@ -25,7 +25,7 @@ COPY services/trade-orchestrator/package.json services/trade-orchestrator/packag
 COPY services/risk-manager/package.json services/risk-manager/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN npm ci
 
 FROM deps AS ci
 
@@ -40,19 +40,7 @@ COPY . .
 
 # Run lint/build similarly to the Cloud Build CI image. Custom filters can be provided
 # via `--build-arg TURBO_FILTERS="backend...,frontend..."` to narrow the workload.
-RUN --mount=type=cache,target=/workspace/.turbo <<'SCRIPT'
-set -euo pipefail
-IFS=',' read -ra raw_filters <<< "$TURBO_FILTERS"
-filters=()
-for token in "${raw_filters[@]}"; do
-  token="$(echo "$token" | xargs)"
-  if [[ -n "$token" ]]; then
-    filters+=(--filter="$token")
-  fi
-done
-npx turbo run lint "${filters[@]}"
-npx turbo run build "${filters[@]}"
-SCRIPT
+RUN ./infrastructure/docker/run-turbo-checks.sh
 
 # Expose the CI layer as the default image so that `docker build .` succeeds while
 # still running the repository checks during the build.
