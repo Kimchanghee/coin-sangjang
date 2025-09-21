@@ -21,9 +21,9 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   const port = process.env.PORT || 8080;
-  
+
   await app.listen(port, '0.0.0.0');
-  
+
   console.log(`Backend application is running on: http://0.0.0.0:${port}/api`);
 }
 
