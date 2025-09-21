@@ -7,6 +7,7 @@ import { UsersModule } from '@/modules/users/users.module';
 import { AuthService } from './services/auth.service';
 import { AuthController } from './controllers/auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { resolveJwtSecret } from './auth.config';
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>('AUTH_JWT_SECRET'),
+        secret: resolveJwtSecret(config),
         signOptions: { expiresIn: config.get('AUTH_ACCESS_TTL', '15m') },
       }),
     }),

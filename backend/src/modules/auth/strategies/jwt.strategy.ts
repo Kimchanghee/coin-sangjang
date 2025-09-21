@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
+import { resolveJwtSecret } from '../auth.config';
+
 export interface JwtPayload {
   sub: string;
   roles: string[];
@@ -15,7 +17,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.getOrThrow<string>('AUTH_JWT_SECRET'),
+      secretOrKey: resolveJwtSecret(configService),
     });
   }
 
