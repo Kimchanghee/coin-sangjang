@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ListingsService } from '@/modules/listings/services/listings.service';
 import { ExchangesService } from '@/modules/exchanges/services/exchanges.service';
+import type { ListingEvent } from '@/modules/listings/entities/listing-event.entity';
 import { Subject, Subscription } from 'rxjs';
 
 interface TradeJobPayload {
@@ -29,13 +30,15 @@ export class TradeOrchestratorService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.listingsSub = this.listingsService.stream$.subscribe((event) => {
-      this.queue$.next({
-        listingId: event.id,
-        symbol: event.symbol,
-        exchangeAccounts: [],
-      });
-    });
+    this.listingsSub = this.listingsService.stream$.subscribe(
+      (event: ListingEvent) => {
+        this.queue$.next({
+          listingId: event.id,
+          symbol: event.symbol,
+          exchangeAccounts: [],
+        });
+      },
+    );
 
     this.queueSub = this.queue$.subscribe((job) => {
       void this.processJob(job);

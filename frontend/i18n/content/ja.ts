@@ -3,8 +3,8 @@ import { LandingCopy } from "./types";
 
 export const jaCopy: LandingCopy = {
   ...enCopy,
-  heroTitle: "ùÛ?ªÎß¾íŞªòøÚóµª·¡¢?õ©ªÇú­èâà»ÚªªË?ìı",
+  heroTitle: "éŸ“å›½ã®ä¸Šå ´ã‚’æ‰ãˆã€æ•°ç§’ã§æµ·å¤–å…ˆç‰©ã¸å‚å…¥",
   heroSubtitle:
-    "Coin-Sangjang ªÏ Upbit ªÈ Bithumb ªÎÍ±ò±ªò«ê«¢«ë«¿«¤«àªËÊøãÊª·¡¢Binance?Bybit?OKX?Gate.io?Bitget ªÎà»Úªã¼íŞªØí»ÔÑªÇ«¨«ó«È«ê?ª·ªŞª¹¡£",
-  ctaLabel: "«Æ«¹«È«Í«Ã«Èª«ªéËÒã·",
+    "Coin-Sangjangã¯Upbitã¨Bithumbã®ç™ºè¡¨ã‚’ãƒªã‚¢ãƒ«ã‚¿ã‚¤ãƒ ã§ç›£è¦–ã—ã€Binanceãƒ»Bybitãƒ»OKXãƒ»Gate.ioãƒ»Bitgetã§è‡ªå‹•çš„ã«ãƒã‚¸ã‚·ãƒ§ãƒ³ã‚’é–‹ãã¾ã™ã€‚",
+  ctaLabel: "ãƒ†ã‚¹ãƒˆãƒãƒƒãƒˆã‹ã‚‰å§‹ã‚ã‚‹",
 };

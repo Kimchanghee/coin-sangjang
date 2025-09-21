@@ -3,8 +3,9 @@ import { LandingCopy } from "./types";
 
 export const viCopy: LandingCopy = {
   ...enCopy,
-  heroTitle: "B?t k?p thong bao niem y?t Han Qu?c va vao l?nh phai sinh ch? trong vai giay",
+  heroTitle:
+    "Bắt kịp thông báo niêm yết Hàn Quốc và vào lệnh phái sinh toàn cầu chỉ trong vài giây",
   heroSubtitle:
-    "Coin-Sangjang theo doi Upbit va Bithumb theo th?i gian th?c va t? ��?ng m? v? th? tren Binance, Bybit, OKX, Gate.io va Bitget.",
-  ctaLabel: "B?t ��?u v?i Testnet",
+    "Coin-Sangjang theo dõi thông báo của Upbit và Bithumb theo thời gian thực và tự động mở vị thế trên Binance, Bybit, OKX, Gate.io và Bitget.",
+  ctaLabel: "Bắt đầu với Testnet",
 };
