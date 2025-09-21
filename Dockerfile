@@ -39,11 +39,17 @@ FROM node:${NODE_VERSION}-bookworm-slim AS backend
 WORKDIR /app
 ENV NODE_ENV=production
 
+# npm 버전 맞추기
+RUN npm install -g npm@11.5.2
+
 # Install production dependencies
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
 COPY packages/shared/package.json packages/shared/package.json
-RUN npm ci --omit=dev --workspace=backend --workspace=@coin-sangjang/shared
+
+# Husky prepare script 무시하고 production dependencies만 설치
+RUN npm ci --omit=dev --workspace=backend --workspace=@coin-sangjang/shared --ignore-scripts || \
+    npm ci --omit=dev --workspace=backend --workspace=@coin-sangjang/shared
 
 # Copy built backend
 COPY --from=builder /workspace/backend/dist ./backend/dist
@@ -65,10 +71,16 @@ FROM node:${NODE_VERSION}-bookworm-slim AS frontend
 WORKDIR /app
 ENV NODE_ENV=production
 
+# npm 버전 맞추기
+RUN npm install -g npm@11.5.2
+
 # Install production dependencies
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package.json
-RUN npm ci --omit=dev --workspace=frontend
+
+# Husky prepare script 무시
+RUN npm ci --omit=dev --workspace=frontend --ignore-scripts || \
+    npm ci --omit=dev --workspace=frontend
 
 # Copy built frontend
 COPY --from=builder /workspace/frontend/.next ./frontend/.next
