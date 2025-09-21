@@ -35,10 +35,13 @@ export class User {
   @Column({ type: 'jsonb', nullable: true })
   profile?: Record<string, unknown>;
 
-  @OneToMany(() => ExchangeAccount, (account) => account.user)
+  @OneToMany(() => ExchangeAccount, (account: ExchangeAccount) => account.user)
   exchangeAccounts!: ExchangeAccount[];
 
-  @OneToMany(() => AdminApprovalRequest, (request) => request.user)
+  @OneToMany(
+    () => AdminApprovalRequest,
+    (request: AdminApprovalRequest) => request.user,
+  )
   approvalRequests!: AdminApprovalRequest[];
 
   @CreateDateColumn()

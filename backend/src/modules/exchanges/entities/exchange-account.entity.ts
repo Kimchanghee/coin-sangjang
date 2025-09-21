@@ -15,7 +15,7 @@ export class ExchangeAccount {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @ManyToOne(() => User, (user) => user.exchangeAccounts, {
+  @ManyToOne(() => User, (user: User) => user.exchangeAccounts, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'user_id' })

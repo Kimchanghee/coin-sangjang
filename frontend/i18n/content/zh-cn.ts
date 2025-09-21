@@ -3,8 +3,8 @@ import { LandingCopy } from "./types";
 
 export const zhCnCopy: LandingCopy = {
   ...enCopy,
-  heroTitle: "õ©?øÚóµ??ß¾?ÍëÍ±, öááÜ?ìıú­èâÑ¢?ã¼?",
+  heroTitle: "ç§’çº§æ•æ‰éŸ©å›½ä¸Šæ–°å…¬å‘Šï¼Œå¿«é€Ÿè¿›å…¥æµ·å¤–æœŸè´§å¸‚åœº",
   heroSubtitle:
-    "Coin-Sangjang ???? Upbit ? Bithumb ÍëÍ±, í»?î¤ Binance¡¢Bybit¡¢OKX¡¢Gate.io ? Bitget ß¾ËïØ¡?êÈ¡£",
-  ctaLabel: "?????ã·",
+    "Coin-Sangjang å®æ—¶ç›‘æ§ Upbit å’Œ Bithumb å…¬å‘Šï¼Œå¹¶åœ¨ Binanceã€Bybitã€OKXã€Gate.io ä¸ Bitget ä¸Šè‡ªåŠ¨å¼€ä»“ã€‚",
+  ctaLabel: "ä»æµ‹è¯•ç½‘å¼€å§‹",
 };

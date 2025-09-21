@@ -3,8 +3,8 @@ import { LandingCopy } from "./types";
 
 export const trCopy: LandingCopy = {
   ...enCopy,
-  heroTitle: "Kore listelemelerini yakalay©¥n ve saniyeler icinde global vadeli i?lemlere girin",
+  heroTitle: "Kore listelemelerini yakalayÄ±n ve saniyeler iÃ§inde global vadeli iÅŸlemlere girin",
   heroSubtitle:
-    "Coin-Sangjang, Upbit ve Bithumb duyurular©¥n©¥ gercek zamanl©¥ izler ve Binance, Bybit, OKX, Gate.io ve Bitget uzerinde otomatik pozisyon acar.",
-  ctaLabel: "Testnet modunda ba?la",
+    "Coin-Sangjang, Upbit ve Bithumb duyurularÄ±nÄ± gerÃ§ek zamanlÄ± olarak izler ve Binance, Bybit, OKX, Gate.io ve Bitget Ã¼zerinde otomatik olarak pozisyon aÃ§ar.",
+  ctaLabel: "Testnet ile baÅŸla",
 };

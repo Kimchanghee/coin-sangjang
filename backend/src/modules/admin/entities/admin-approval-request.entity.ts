@@ -17,7 +17,7 @@ export class AdminApprovalRequest {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @ManyToOne(() => User, (user) => user.approvalRequests, {
+  @ManyToOne(() => User, (user: User) => user.approvalRequests, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'user_id' })
