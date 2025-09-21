@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1.7
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+COPY package.json package-lock.json turbo.json tsconfig.base.json ./
+COPY services/risk-manager/package.json services/risk-manager/package.json
+RUN npm install --workspace services/risk-manager --include-workspace-root false
+
+COPY services/risk-manager ./services/risk-manager
+RUN npm run build --workspace services/risk-manager
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json turbo.json tsconfig.base.json ./
+COPY services/risk-manager/package.json services/risk-manager/package.json
+RUN npm install --workspace services/risk-manager --include-workspace-root false --omit=dev
+
+COPY --from=builder /app/services/risk-manager/dist ./services/risk-manager/dist
+CMD ["node", "services/risk-manager/dist/index.js"]

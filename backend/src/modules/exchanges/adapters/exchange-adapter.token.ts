@@ -1,0 +1,1 @@
+export const EXCHANGE_ADAPTERS = Symbol('EXCHANGE_ADAPTERS');

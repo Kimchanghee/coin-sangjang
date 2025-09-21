@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1.7
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+COPY package.json package-lock.json turbo.json tsconfig.base.json ./
+COPY services/listing-ingest/package.json services/listing-ingest/package.json
+RUN npm install --workspace services/listing-ingest --include-workspace-root false
+
+COPY services/listing-ingest ./services/listing-ingest
+RUN npm run build --workspace services/listing-ingest
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json turbo.json tsconfig.base.json ./
+COPY services/listing-ingest/package.json services/listing-ingest/package.json
+RUN npm install --workspace services/listing-ingest --include-workspace-root false --omit=dev
+
+COPY --from=builder /app/services/listing-ingest/dist ./services/listing-ingest/dist
+CMD ["node", "services/listing-ingest/dist/index.js"]

@@ -1,0 +1,94 @@
+import { LandingCopy } from "./types";
+
+export const enCopy: LandingCopy = {
+  heroTitle: "Catch Korean listings. Enter global futures in seconds.",
+  heroSubtitle:
+    "Coin-Sangjang listens to Upbit and Bithumb announcements in real time and triggers automated entries on Binance, Bybit, OKX, Gate.io, and Bitget.",
+  ctaLabel: "Start in Testnet Mode",
+  banner: {
+    title: "Promotion Banner",
+    subtitle: "Reserve this zone for partner advertisements or product updates.",
+    cta: "Manage Banners",
+  },
+  featuresTitle: "Platform Highlights",
+  features: [
+    {
+      id: 1,
+      title: "Real-time listing ingest",
+      description:
+        "Persistent WebSocket collectors for Upbit and Bithumb normalize listing alerts and push them to the trading pipeline instantly.",
+    },
+    {
+      id: 2,
+      title: "Global futures coverage",
+      description:
+        "Auto-discover symbols on Binance, Bybit, OKX, Gate.io, and Bitget, then place entries the moment Korean listings go live.",
+    },
+    {
+      id: 3,
+      title: "Exchange API management",
+      description:
+        "Store mainnet and testnet API keys securely, switch modes per exchange, and enforce per-account risk limits.",
+    },
+    {
+      id: 4,
+      title: "USDT-based sizing & leverage",
+      description:
+        "Configure USDT allocation, leverage, and automatic TP/SL ratios directly from the dashboard UI.",
+    },
+    {
+      id: 5,
+      title: "Admin approval workflow",
+      description:
+        "Users register with exchange UIDs, request admin approval, and unlock trading only after explicit confirmation.",
+    },
+    {
+      id: 6,
+      title: "15-language experience",
+      description:
+        "Serve localized landing pages, guides, and dashboards for 15 locales with separate content files per language.",
+    },
+  ],
+  usageGuideTitle: "Usage Guide & Intro",
+  usageGuide: {
+    intro:
+      "Korean exchange listings often lead to rapid price movements on global derivatives markets within minutes.",
+    rationale:
+      "Coin-Sangjang automates monitoring and entry so you can react faster while still enforcing risk rules.",
+    steps: [
+      "Create an account and submit your exchange UID for admin approval.",
+      "Connect API keys for supported exchanges (testnet first) and choose default leverage.",
+      "Set target take-profit and stop-loss percentages, plus USDT allocation per signal.",
+      "Enable auto-trading. When a listing alert arrives, the orchestrator validates symbol availability and opens the configured position.",
+    ],
+  },
+  tradeForm: {
+    sectionTitle: "Trading Preferences",
+    leverageLabel: "Leverage",
+    leverageHelper: "Applies per exchange. Respect exchange-specific caps.",
+    sizeLabel: "USDT Per Trade",
+    sizeHelper: "Amount committed when a new listing signal fires.",
+    tpLabel: "Take-Profit %",
+    slLabel: "Stop-Loss %",
+    exchangeSelector: "Target Exchanges",
+    testnetToggle: "Use Testnet",
+    autoTradeToggle: "Auto-enter on listing",
+    submitLabel: "Save Preferences",
+  },
+  admin: {
+    requestTitle: "Request Admin Approval",
+    requestDescription:
+      "Provide your UID and exchange selection so the administrator can whitelist you before live trading.",
+    uidLabel: "Your UID",
+    exchangeLabel: "Exchange",
+    note: "Only approved users can access the dashboard and auto-trading features.",
+    submit: "Submit Request",
+    pendingNotice: "Waiting for admin confirmation...",
+  },
+  realtimeTitle: "Realtime Listing Feed",
+  realtimeStatusIdle: "Waiting for connection...",
+  realtimeStatusConnected: "Streaming announcements",
+  apiKeysTitle: "API Key Management",
+  apiKeysHelper:
+    "Store encrypted API keys for both mainnet and testnet. Keys live in Secret Manager; rotate them regularly.",
+};

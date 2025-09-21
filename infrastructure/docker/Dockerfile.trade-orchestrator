@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1.7
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+COPY package.json package-lock.json turbo.json tsconfig.base.json ./
+COPY services/trade-orchestrator/package.json services/trade-orchestrator/package.json
+RUN npm install --workspace services/trade-orchestrator --include-workspace-root false
+
+COPY services/trade-orchestrator ./services/trade-orchestrator
+RUN npm run build --workspace services/trade-orchestrator
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json turbo.json tsconfig.base.json ./
+COPY services/trade-orchestrator/package.json services/trade-orchestrator/package.json
+RUN npm install --workspace services/trade-orchestrator --include-workspace-root false --omit=dev
+
+COPY --from=builder /app/services/trade-orchestrator/dist ./services/trade-orchestrator/dist
+CMD ["node", "services/trade-orchestrator/dist/index.js"]
