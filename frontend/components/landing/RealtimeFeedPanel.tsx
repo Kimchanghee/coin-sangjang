@@ -3,10 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LandingCopy } from "@/i18n/content/types";
 
+interface MarketSnapshot {
+  exchange: string;
+  available: boolean;
+  checkedAt?: string;
+}
+
 interface ListingEvent {
+  id?: string;
   source: string;
   symbol: string;
-  scheduledAt: string;
+  baseSymbol?: string;
+  announcedAt: string;
+  marketsSnapshot?: MarketSnapshot[];
 }
 
 interface RealtimeFeedPanelProps {
@@ -15,44 +24,108 @@ interface RealtimeFeedPanelProps {
 }
 
 const FALLBACK_EVENTS: ListingEvent[] = [
-  { source: "Upbit", symbol: "ABC", scheduledAt: new Date().toISOString() },
-  { source: "Bithumb", symbol: "XYZ", scheduledAt: new Date().toISOString() },
+  {
+    source: "UPBIT",
+    symbol: "BTCUSDT",
+    baseSymbol: "BTC",
+    announcedAt: new Date().toISOString(),
+    marketsSnapshot: [
+      { exchange: "BINANCE", available: true },
+      { exchange: "BYBIT", available: true },
+    ],
+  },
+  {
+    source: "BITHUMB",
+    symbol: "APTUSDT",
+    baseSymbol: "APT",
+    announcedAt: new Date().toISOString(),
+    marketsSnapshot: [
+      { exchange: "BINANCE", available: true },
+      { exchange: "OKX", available: false },
+    ],
+  },
 ];
+
+const DEFAULT_AVAILABILITY_COPY = {
+  coverageTitle: "Global derivatives coverage",
+  availableLabel: "Listed",
+  unavailableLabel: "Not listed",
+  unknownLabel: "Awaiting exchange diagnostics",
+  updatedLabel: "Checked",
+};
 
 export function RealtimeFeedPanel({ copy, locale }: RealtimeFeedPanelProps) {
   const [events, setEvents] = useState<ListingEvent[]>(FALLBACK_EVENTS);
   const [connected, setConnected] = useState(false);
+  const availabilityCopy = copy.realtimeAvailability ?? DEFAULT_AVAILABILITY_COPY;
+
+  const apiBase = useMemo(
+    () => process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080/api",
+    [],
+  );
 
   useEffect(() => {
-    const wsUrl = process.env.NEXT_PUBLIC_LISTING_WS ?? "ws://localhost:4000/listings";
-    let ws: WebSocket | null = null;
+    let active = true;
+    const fetchRecent = async () => {
+      try {
+        const response = await fetch(`${apiBase}/listings/recent`);
+        if (!response.ok) {
+          throw new Error(`failed to fetch listings: ${response.status}`);
+        }
+        const data = (await response.json()) as ListingEvent[];
+        if (active && Array.isArray(data) && data.length > 0) {
+          setEvents(data);
+        }
+      } catch (error) {
+        console.warn("Failed to load recent listings", error);
+      }
+    };
+    void fetchRecent();
+    return () => {
+      active = false;
+    };
+  }, [apiBase]);
 
+  useEffect(() => {
+    const streamUrl = `${apiBase}/listings/stream`;
+    let source: EventSource | null = null;
     try {
-      ws = new WebSocket(wsUrl);
-      ws.addEventListener("open", () => setConnected(true));
-      ws.addEventListener("message", (event) => {
+      source = new EventSource(streamUrl, { withCredentials: false });
+      source.onopen = () => setConnected(true);
+      source.onerror = () => setConnected(false);
+      source.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data) as ListingEvent;
-          setEvents((prev) => [payload, ...prev].slice(0, 20));
+          setEvents((prev) => {
+            const next = [payload, ...prev];
+            const unique = new Map<string, ListingEvent>();
+            for (const item of next) {
+              const key = item.id ?? `${item.source}-${item.symbol}-${item.announcedAt}`;
+              if (!unique.has(key)) {
+                unique.set(key, item);
+              }
+            }
+            return Array.from(unique.values()).slice(0, 20);
+          });
         } catch (error) {
-          console.warn("Invalid listing payload", error);
+          console.warn("Invalid SSE listing payload", error);
         }
-      });
-      ws.addEventListener("close", () => setConnected(false));
+      };
     } catch (error) {
-      console.warn("WebSocket unavailable", error);
+      console.warn("EventSource unavailable", error);
     }
 
-    return () => ws?.close();
-  }, [locale]);
+    return () => {
+      source?.close();
+    };
+  }, [apiBase]);
 
   const status = connected ? copy.realtimeStatusConnected : copy.realtimeStatusIdle;
 
-  const grouped = useMemo(() => {
-    return events.reduce<Record<string, ListingEvent[]>>((acc, curr) => {
-      acc[curr.source] = acc[curr.source] ? [curr, ...acc[curr.source]] : [curr];
-      return acc;
-    }, {});
+  const sortedEvents = useMemo(() => {
+    return [...events].sort(
+      (a, b) => new Date(b.announcedAt).getTime() - new Date(a.announcedAt).getTime(),
+    );
   }, [events]);
 
   return (
@@ -64,29 +137,78 @@ export function RealtimeFeedPanel({ copy, locale }: RealtimeFeedPanelProps) {
         </div>
         <span className={`h-3 w-3 rounded-full ${connected ? "bg-emerald-400" : "bg-slate-500"}`} />
       </header>
-      <div className="grid gap-4 md:grid-cols-2">
-        {Object.entries(grouped).map(([source, items]) => (
-          <article key={source} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-            <header className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold">{source}</h3>
-              <span className="text-xs text-slate-400">{items.length} events</span>
-            </header>
-            <ul className="space-y-2 text-xs text-slate-200">
-              {items.map((item, index) => (
-                <li key={`${item.symbol}-${index}`} className="flex justify-between">
-                  <span>{item.symbol}</span>
-                  <time suppressHydrationWarning>
-                    {new Date(item.scheduledAt).toLocaleTimeString(locale, {
+      <div className="space-y-4">
+        {sortedEvents.length === 0 ? (
+          <p className="text-sm text-slate-400">{availabilityCopy.unknownLabel}</p>
+        ) : (
+          sortedEvents.map((event) => {
+            const baseSymbol = event.baseSymbol ?? event.symbol.replace(/USDT$/i, "");
+            return (
+              <article
+                key={event.id ?? `${event.source}-${event.symbol}-${event.announcedAt}`}
+                className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4"
+              >
+                <header className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-wide text-slate-100">
+                      {event.source} · {baseSymbol}
+                    </p>
+                    <p className="text-xs text-slate-400">{event.symbol}</p>
+                  </div>
+                  <time className="text-xs text-slate-300" suppressHydrationWarning>
+                    {new Date(event.announcedAt).toLocaleString(locale, {
                       hour: "2-digit",
                       minute: "2-digit",
                       second: "2-digit",
                     })}
                   </time>
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))}
+                </header>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    {availabilityCopy.coverageTitle}
+                  </p>
+                  {event.marketsSnapshot && event.marketsSnapshot.length > 0 ? (
+                    <ul className="mt-2 flex flex-wrap gap-2">
+                      {event.marketsSnapshot.map((market) => (
+                        <li
+                          key={`${event.id ?? event.symbol}-${market.exchange}`}
+                          className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold transition ${
+                            market.available
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : "bg-rose-500/10 text-rose-200"
+                          }`}
+                        >
+                          <span>{market.exchange}</span>
+                          <span>
+                            {market.available
+                              ? availabilityCopy.availableLabel
+                              : availabilityCopy.unavailableLabel}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      {availabilityCopy.unknownLabel}
+                    </p>
+                  )}
+                  {event.marketsSnapshot && event.marketsSnapshot.length > 0 && (
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {availabilityCopy.updatedLabel}:{" "}
+                      {new Date(
+                        event.marketsSnapshot[0]?.checkedAt ?? event.announcedAt,
+                      ).toLocaleTimeString(locale, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </p>
+                  )}
+                </div>
+              </article>
+            );
+          })
+        )}
       </div>
     </section>
   );

@@ -40,6 +40,37 @@ export interface BannerCopy {
   cta: string;
 }
 
+export interface RealtimeAvailabilityCopy {
+  coverageTitle: string;
+  availableLabel: string;
+  unavailableLabel: string;
+  unknownLabel: string;
+  updatedLabel: string;
+}
+
+export interface ApiKeysFormCopy {
+  keyIdLabel: string;
+  secretLabel: string;
+  passphraseLabel: string;
+  networkLabel: string;
+  mainnetOption: string;
+  testnetOption: string;
+  manageLabel: string;
+  verifyLabel: string;
+  verifyingLabel: string;
+  statusConnected: string;
+  statusDisconnected: string;
+  lastCheckedLabel: string;
+  balancesTitle: string;
+  futuresLabel: string;
+  spotLabel: string;
+  marginLabel: string;
+  emptyBalances: string;
+  connectionError: string;
+  totalLabel: string;
+  availableLabel: string;
+}
+
 export interface LandingCopy {
   heroTitle: string;
   heroSubtitle: string;
@@ -56,4 +87,6 @@ export interface LandingCopy {
   realtimeStatusConnected: string;
   apiKeysTitle: string;
   apiKeysHelper: string;
+  realtimeAvailability?: RealtimeAvailabilityCopy;
+  apiKeysForm?: ApiKeysFormCopy;
 }
