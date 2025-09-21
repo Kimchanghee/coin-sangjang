@@ -1,0 +1,90 @@
+# Cloud Build pipeline for the background worker services.
+
+timeout: 2400s
+options:
+  machineType: E2_HIGHCPU_8
+
+substitutions:
+  _REGION: asia-northeast3
+  _REPOSITORY: coin-sangjang-workers
+  _LISTING_IMAGE: listing-ingest
+  _TRADE_IMAGE: trade-orchestrator
+  _RISK_IMAGE: risk-manager
+  _PROMOTE_TAG: latest
+  _TURBO_FILTERS: '@coin-sangjang/listing-ingest...,@coin-sangjang/trade-orchestrator...,@coin-sangjang/risk-manager...'
+
+steps:
+  - id: verify-worker-sources
+    name: gcr.io/cloud-builders/docker
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - '--file=infrastructure/cloud-build/Dockerfile.ci'
+      - '--target=ci'
+      - '--build-arg=TURBO_FILTERS=$_TURBO_FILTERS'
+      - '--tag=ci-workers'
+      - '--progress=plain'
+      - .
+
+  - id: build-listing-ingest
+    name: gcr.io/cloud-builders/docker
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - '--file=infrastructure/docker/Dockerfile.listing-ingest'
+      - '--tag=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_LISTING_IMAGE:$COMMIT_SHA'
+      - '--progress=plain'
+      - .
+
+  - id: tag-listing-ingest
+    name: gcr.io/cloud-builders/docker
+    args:
+      - tag
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_LISTING_IMAGE:$COMMIT_SHA'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_LISTING_IMAGE:$_PROMOTE_TAG'
+
+  - id: build-trade-orchestrator
+    name: gcr.io/cloud-builders/docker
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - '--file=infrastructure/docker/Dockerfile.trade-orchestrator'
+      - '--tag=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_TRADE_IMAGE:$COMMIT_SHA'
+      - '--progress=plain'
+      - .
+
+  - id: tag-trade-orchestrator
+    name: gcr.io/cloud-builders/docker
+    args:
+      - tag
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_TRADE_IMAGE:$COMMIT_SHA'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_TRADE_IMAGE:$_PROMOTE_TAG'
+
+  - id: build-risk-manager
+    name: gcr.io/cloud-builders/docker
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - '--file=infrastructure/docker/Dockerfile.risk-manager'
+      - '--tag=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_RISK_IMAGE:$COMMIT_SHA'
+      - '--progress=plain'
+      - .
+
+  - id: tag-risk-manager
+    name: gcr.io/cloud-builders/docker
+    args:
+      - tag
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_RISK_IMAGE:$COMMIT_SHA'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_RISK_IMAGE:$_PROMOTE_TAG'
+
+images:
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_LISTING_IMAGE:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_LISTING_IMAGE:$_PROMOTE_TAG'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_TRADE_IMAGE:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_TRADE_IMAGE:$_PROMOTE_TAG'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_RISK_IMAGE:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/$_RISK_IMAGE:$_PROMOTE_TAG'
