@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Sse, MessageEvent } from '@nestjs/common';
+import { map, type Observable } from 'rxjs';
 
 import { ListingsService } from '../services/listings.service';
 
@@ -9,6 +10,13 @@ export class ListingsController {
   @Get('recent')
   recent() {
     return this.listingsService.findRecent();
+  }
+
+  @Sse('stream')
+  stream(): Observable<MessageEvent> {
+    return this.listingsService.stream$.pipe(
+      map((event) => ({ data: event }) as MessageEvent),
+    );
   }
 
   @Post('mock')
