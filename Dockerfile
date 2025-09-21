@@ -20,9 +20,8 @@ COPY services/risk-manager/package.json services/risk-manager/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN npm ci
 
+# CI/Build stage
 FROM deps AS ci
-# TURBO_FILTERS를 빈 문자열로 설정하여 모든 패키지를 대상으로 함
-# 빌드 시 --build-arg로 특정 패키지만 지정 가능
 ARG TURBO_FILTERS=""
 ENV NEXT_TELEMETRY_DISABLED=1 \
     TURBO_TELEMETRY_DISABLED=1 \
@@ -34,7 +33,43 @@ COPY . .
 # via `--build-arg TURBO_FILTERS="backend frontend"` to narrow the workload.
 RUN ./infrastructure/docker/run-turbo-checks.sh
 
-# Expose the CI layer as the default image so that `docker build .` succeeds while
-# still running the repository checks during the build.
-FROM ci AS final
-CMD ["bash"]
+# Production stage for backend
+FROM node:${NODE_VERSION}-bookworm-slim AS backend-runtime
+WORKDIR /workspace
+ENV NODE_ENV=production
+# 필요한 파일들만 복사
+COPY --from=ci /workspace/package*.json ./
+COPY --from=ci /workspace/turbo.json ./
+COPY --from=ci /workspace/backend ./backend
+COPY --from=ci /workspace/packages ./packages
+COPY --from=ci /workspace/node_modules ./node_modules
+COPY --from=ci /workspace/backend/node_modules ./backend/node_modules
+# PORT 환경변수 설정 (Cloud Run에서 자동으로 설정하지만 기본값 제공)
+ENV PORT=8080
+EXPOSE 8080
+WORKDIR /workspace/backend
+# NestJS 애플리케이션 실행
+CMD ["node", "dist/main"]
+
+# Production stage for frontend (Next.js)
+FROM node:${NODE_VERSION}-bookworm-slim AS frontend-runtime
+WORKDIR /workspace
+ENV NODE_ENV=production
+# 필요한 파일들만 복사
+COPY --from=ci /workspace/package*.json ./
+COPY --from=ci /workspace/turbo.json ./
+COPY --from=ci /workspace/frontend ./frontend
+COPY --from=ci /workspace/packages ./packages
+COPY --from=ci /workspace/node_modules ./node_modules
+COPY --from=ci /workspace/frontend/node_modules ./frontend/node_modules
+COPY --from=ci /workspace/frontend/.next ./frontend/.next
+# PORT 환경변수 설정
+ENV PORT=8080
+EXPOSE 8080
+WORKDIR /workspace/frontend
+# Next.js 애플리케이션 실행
+CMD ["npm", "run", "start"]
+
+# 기본적으로 backend를 실행하도록 설정
+# Cloud Run 배포 시 --target 옵션으로 선택 가능
+FROM backend-runtime AS final
