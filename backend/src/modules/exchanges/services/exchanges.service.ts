@@ -5,8 +5,14 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 import { ExchangeAccount } from '../entities/exchange-account.entity';
-import type { ExchangeAccountMetadata } from '../dto/create-exchange-account.dto';
-import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
+import {
+  type ExchangeAccountMetadata,
+  isExchangeAccountMetadata,
+} from '../dto/create-exchange-account.dto';
+import {
+  UpdateExchangeAccountDto,
+  hasCredentialChanges,
+} from '../dto/update-exchange-account.dto';
 import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
 import {
   ExchangeAvailabilityDiagnostic,
@@ -16,6 +22,7 @@ import {
   PrepareExecutionOptions,
   PrepareExecutionResult,
   SUPPORTED_EXCHANGES,
+  resolveNetworkMode,
 } from '../types/exchange.types';
 import {
   VerifyExchangeCredentialsDto,
@@ -50,7 +57,13 @@ export class ExchangesService {
    */
   async upsert(userId: string, dto: UpsertPayload): Promise<ExchangeAccount> {
     const exchange = this.normalizeExchangeSlug(dto.exchange);
-    const payload: UpsertPayload = { ...dto, exchange };
+    const { metadata: rawMetadata, ...rest } = dto;
+    const metadata = this.sanitizeMetadata(rawMetadata);
+    const payload: UpsertPayload = {
+      ...rest,
+      exchange,
+      ...(metadata ? { metadata } : {}),
+    };
 
     const existingAccount = await this.exchangeAccountRepository.findOne({
       where: {
@@ -77,15 +90,21 @@ export class ExchangesService {
     dto: VerifyExchangeCredentialsDto,
   ): Promise<VerifyExchangeCredentialsResponseDto> {
     const exchange = this.normalizeExchangeSlug(dto.exchange);
+    const apiKeyId = this.requireCredential(
+      this.coerceCredentialInput(dto.apiKeyId),
+      'API 키 ID',
+    );
+    const apiKeySecret = this.requireCredential(
+      this.coerceCredentialInput(dto.apiKeySecret),
+      'API 비밀 키',
+    );
+    const passphrase = this.coerceCredentialInput(dto.passphrase);
+    const mode = dto.mode ?? NetworkMode.MAINNET;
     const response: VerifyExchangeCredentialsResponseDto = {
       exchange,
-      mode: dto.mode,
+      mode,
       connected: false,
-      fingerprint: this.createCredentialFingerprint(
-        exchange,
-        dto.apiKeyId,
-        dto.mode,
-      ),
+      fingerprint: this.createCredentialFingerprint(exchange, apiKeyId, mode),
       lastCheckedAt: new Date().toISOString(),
       balances: [],
     };
@@ -93,9 +112,9 @@ export class ExchangesService {
     try {
       const connected = await this.validateApiKeys(
         exchange,
-        dto.apiKeyId,
-        dto.apiKeySecret,
-        dto.passphrase,
+        apiKeyId,
+        apiKeySecret,
+        passphrase,
       );
 
       response.connected = connected;
@@ -128,20 +147,28 @@ export class ExchangesService {
   ): Promise<PrepareExecutionResult> {
     const symbol =
       typeof normalized === 'string' ? normalized : normalized.symbol;
+    const useTestnet = options?.useTestnet ?? false;
+    const mode = resolveNetworkMode(useTestnet);
+    const checkedAt = new Date().toISOString();
     const diagnostics: ExchangeAvailabilityDiagnostic[] =
       SUPPORTED_EXCHANGES.map((exchange) => ({
         exchange,
+        mode,
         ready: true,
         available: true,
-        message: 'Ready for trading',
-        checkedAt: new Date().toISOString(),
+        message: useTestnet
+          ? 'Testnet 환경에서 거래 준비 완료'
+          : 'Ready for trading',
+        checkedAt,
       }));
+
+    const ready = diagnostics.some((d) => d.ready);
 
     return Promise.resolve({
       symbol,
       diagnostics,
-      ready: diagnostics.some((d) => d.ready),
-      useTestnet: options?.useTestnet ?? false,
+      ready,
+      useTestnet,
     });
   }
 
@@ -153,6 +180,16 @@ export class ExchangesService {
     createDto: UpsertPayload,
   ): Promise<ExchangeAccount> {
     const exchange = this.normalizeExchangeSlug(createDto.exchange);
+    const apiKeyId = this.requireCredential(
+      this.coerceCredentialInput(createDto.apiKeyId),
+      'API 키 ID',
+    );
+    const apiKeySecret = this.requireCredential(
+      this.coerceCredentialInput(createDto.apiKeySecret),
+      'API 비밀 키',
+    );
+    const passphrase = this.coerceCredentialInput(createDto.passphrase);
+    const metadata = this.sanitizeMetadata(createDto.metadata);
     const existingAccount = await this.exchangeAccountRepository.findOne({
       where: {
         userId,
@@ -166,17 +203,17 @@ export class ExchangesService {
       );
     }
 
-    const encryptedApiKeyId = this.encryptData(createDto.apiKeyId);
-    const encryptedApiKeySecret = this.encryptData(createDto.apiKeySecret);
-    const encryptedPassphrase = createDto.passphrase
-      ? this.encryptData(createDto.passphrase)
+    const encryptedApiKeyId = this.encryptData(apiKeyId);
+    const encryptedApiKeySecret = this.encryptData(apiKeySecret);
+    const encryptedPassphrase = passphrase
+      ? this.encryptData(passphrase)
       : undefined;
 
     const isValid = await this.validateApiKeys(
       exchange,
-      createDto.apiKeyId,
-      createDto.apiKeySecret,
-      createDto.passphrase,
+      apiKeyId,
+      apiKeySecret,
+      passphrase,
     );
 
     if (!isValid) {
@@ -192,7 +229,7 @@ export class ExchangesService {
       passphrase: encryptedPassphrase,
       defaultLeverage: createDto.defaultLeverage ?? 5,
       isActive: createDto.isActive ?? true,
-      ...(createDto.metadata ? { metadata: createDto.metadata } : {}),
+      ...(metadata ? { metadata } : {}),
     });
 
     return await this.exchangeAccountRepository.save(account);
@@ -268,26 +305,44 @@ export class ExchangesService {
       throw new BadRequestException('거래소 유형은 변경할 수 없습니다.');
     }
 
-    const shouldValidateKeys =
-      updateDto.apiKeyId !== undefined ||
-      updateDto.apiKeySecret !== undefined ||
-      updateDto.passphrase !== undefined;
+    const hasApiKeyIdUpdate = updateDto.apiKeyId !== undefined;
+    const hasApiKeySecretUpdate = updateDto.apiKeySecret !== undefined;
+    const hasPassphraseUpdate = updateDto.passphrase !== undefined;
+    const nextApiKeyId = hasApiKeyIdUpdate
+      ? this.requireCredential(
+          this.coerceCredentialInput(updateDto.apiKeyId),
+          'API 키 ID',
+        )
+      : undefined;
+    const nextApiKeySecret = hasApiKeySecretUpdate
+      ? this.requireCredential(
+          this.coerceCredentialInput(updateDto.apiKeySecret),
+          'API 비밀 키',
+        )
+      : undefined;
+    const nextPassphrase = hasPassphraseUpdate
+      ? this.coerceCredentialInput(updateDto.passphrase)
+      : undefined;
+    const shouldValidateKeys = hasCredentialChanges(updateDto);
 
     if (shouldValidateKeys) {
-      const currentApiKeyId =
-        this.decryptData(account.apiKeyId) || account.apiKeyId;
-      const currentApiKeySecret =
-        this.decryptData(account.apiKeySecret) || account.apiKeySecret;
-      const currentPassphrase = account.passphrase
-        ? this.decryptData(account.passphrase)
-        : undefined;
+      const currentApiKeyId = this.requireCredential(
+        this.coerceCredentialInput(this.decryptData(account.apiKeyId)),
+        '저장된 API 키 ID',
+      );
+      const currentApiKeySecret = this.requireCredential(
+        this.coerceCredentialInput(this.decryptData(account.apiKeySecret)),
+        '저장된 API 비밀 키',
+      );
+      const currentPassphrase = this.coerceCredentialInput(
+        account.passphrase ? this.decryptData(account.passphrase) : undefined,
+      );
 
-      const apiKeyId = updateDto.apiKeyId ?? currentApiKeyId;
-      const apiKeySecret = updateDto.apiKeySecret ?? currentApiKeySecret;
-      const passphrase =
-        updateDto.passphrase !== undefined
-          ? updateDto.passphrase || undefined
-          : currentPassphrase;
+      const apiKeyId = nextApiKeyId ?? currentApiKeyId;
+      const apiKeySecret = nextApiKeySecret ?? currentApiKeySecret;
+      const passphrase = hasPassphraseUpdate
+        ? nextPassphrase
+        : currentPassphrase;
 
       const isValid = await this.validateApiKeys(
         account.exchange,
@@ -300,15 +355,15 @@ export class ExchangesService {
         throw new BadRequestException('유효하지 않은 API 키입니다.');
       }
 
-      if (updateDto.apiKeyId) {
-        account.apiKeyId = this.encryptData(updateDto.apiKeyId);
+      if (typeof nextApiKeyId === 'string') {
+        account.apiKeyId = this.encryptData(nextApiKeyId);
       }
-      if (updateDto.apiKeySecret) {
-        account.apiKeySecret = this.encryptData(updateDto.apiKeySecret);
+      if (typeof nextApiKeySecret === 'string') {
+        account.apiKeySecret = this.encryptData(nextApiKeySecret);
       }
-      if (updateDto.passphrase !== undefined) {
-        account.passphrase = updateDto.passphrase
-          ? this.encryptData(updateDto.passphrase)
+      if (hasPassphraseUpdate) {
+        account.passphrase = nextPassphrase
+          ? this.encryptData(nextPassphrase)
           : undefined;
       }
     }
@@ -322,8 +377,9 @@ export class ExchangesService {
     if (typeof updateDto.isActive === 'boolean') {
       account.isActive = updateDto.isActive;
     }
-    if (updateDto.metadata) {
-      account.metadata = { ...(account.metadata ?? {}), ...updateDto.metadata };
+    const metadata = this.sanitizeMetadata(updateDto.metadata);
+    if (metadata) {
+      account.metadata = { ...(account.metadata ?? {}), ...metadata };
     }
 
     return await this.exchangeAccountRepository.save(account);
@@ -954,6 +1010,46 @@ export class ExchangesService {
     }
   }
 
+  private coerceCredentialInput(value?: string | null): string | undefined {
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private requireCredential(
+    value: string | undefined,
+    fieldLabel: string,
+  ): string {
+    if (!value) {
+      throw new BadRequestException(`${fieldLabel}는 비워둘 수 없습니다.`);
+    }
+
+    return value;
+  }
+
+  private sanitizeMetadata(
+    metadata?: ExchangeAccountMetadata,
+  ): ExchangeAccountMetadata | undefined {
+    if (!isExchangeAccountMetadata(metadata)) {
+      return undefined;
+    }
+
+    const sanitized = Object.entries(metadata).reduce<Record<string, unknown>>(
+      (acc, [key, value]) => {
+        if (value !== undefined) {
+          acc[key] = value;
+        }
+        return acc;
+      },
+      {},
+    );
+
+    return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+  }
+
   private normalizeExchangeSlug(
     exchange: SupportedExchangeInput,
   ): ExchangeType {
@@ -1027,12 +1123,23 @@ export class ExchangesService {
       return false;
     }
 
-    const apiKeyId = this.decryptData(account.apiKeyId) || account.apiKeyId;
-    const apiKeySecret =
-      this.decryptData(account.apiKeySecret) || account.apiKeySecret;
-    const passphrase = account.passphrase
-      ? this.decryptData(account.passphrase)
-      : undefined;
+    const apiKeyId = this.coerceCredentialInput(
+      this.decryptData(account.apiKeyId),
+    );
+    const apiKeySecret = this.coerceCredentialInput(
+      this.decryptData(account.apiKeySecret),
+    );
+
+    if (!apiKeyId || !apiKeySecret) {
+      this.logger.warn(
+        `${normalizedExchange} 거래소 계정에 저장된 API 자격 증명이 비어있습니다.`,
+      );
+      return false;
+    }
+
+    const passphrase = this.coerceCredentialInput(
+      account.passphrase ? this.decryptData(account.passphrase) : undefined,
+    );
 
     return await this.validateApiKeys(
       normalizedExchange,

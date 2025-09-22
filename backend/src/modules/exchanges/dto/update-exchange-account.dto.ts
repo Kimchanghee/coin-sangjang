@@ -47,3 +47,13 @@ export class UpdateExchangeAccountDto {
   @IsObject()
   metadata?: ExchangeAccountMetadata;
 }
+
+export const hasCredentialChanges = (
+  dto: Pick<
+    UpdateExchangeAccountDto,
+    'apiKeyId' | 'apiKeySecret' | 'passphrase'
+  >,
+): boolean =>
+  dto.apiKeyId !== undefined ||
+  dto.apiKeySecret !== undefined ||
+  dto.passphrase !== undefined;
