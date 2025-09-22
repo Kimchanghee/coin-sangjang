@@ -1,691 +1,795 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { createHash, createHmac } from 'node:crypto';
-
+import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 import { ExchangeAccount } from '../entities/exchange-account.entity';
-import { EXCHANGE_ADAPTERS } from '../adapters/exchange-adapter.token';
-import type { ExchangeAdapter } from '../adapters/exchange-adapter.interface';
-import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
-import {
-  VerifyExchangeCredentialsDto,
-  type ExchangeBalanceBreakdownDto,
-  type VerifyExchangeCredentialsResponseDto,
-} from '../dto/verify-exchange-credentials.dto';
-import type { ExchangeSlug } from '../exchange.constants';
-
-interface ExchangeAvailabilityDiagnostic {
-  exchange: ExchangeSlug;
-  available: boolean;
-  checkedAt: string;
-  error?: string;
-}
+import { User } from '../../users/entities/user.entity';
+import { CreateExchangeAccountDto } from '../dto/create-exchange-account.dto';
+import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
+import { ExchangeType, AccountStatus } from '../types/exchange.types';
 
 @Injectable()
 export class ExchangesService {
+  private readonly logger = new Logger(ExchangesService.name);
+
   constructor(
     @InjectRepository(ExchangeAccount)
-    private readonly accountsRepository: Repository<ExchangeAccount>,
-    @Inject(EXCHANGE_ADAPTERS) private readonly adapters: ExchangeAdapter[],
+    private readonly exchangeAccountRepository: Repository<ExchangeAccount>,
+    private readonly configService: ConfigService,
   ) {}
 
-  listByUser(userId: string) {
-    return this.accountsRepository.find({ where: { userId } });
-  }
-
-  async upsert(userId: string, dto: UpsertExchangeAccountDto) {
-    const existing = await this.accountsRepository.findOne({
-      where: { userId, exchange: dto.exchange, mode: dto.mode },
+  /**
+   * 거래소 계정 생성
+   */
+  async createExchangeAccount(
+    userId: string,
+    createDto: CreateExchangeAccountDto,
+  ): Promise<ExchangeAccount> {
+    const existingAccount = await this.exchangeAccountRepository.findOne({
+      where: {
+        userId,
+        exchange: createDto.exchange,
+      },
     });
 
-    if (existing) {
-      return this.accountsRepository.save({
-        ...existing,
-        ...dto,
-        userId,
-      });
+    if (existingAccount) {
+      throw new BadRequestException(
+        `${createDto.exchange} 거래소 계정이 이미 존재합니다.`,
+      );
     }
 
-    const created = this.accountsRepository.create({
-      ...dto,
+    // API 키 암호화
+    const encryptedApiKey = this.encryptData(createDto.apiKey);
+    const encryptedSecretKey = this.encryptData(createDto.secretKey);
+    const encryptedPassphrase = createDto.passphrase
+      ? this.encryptData(createDto.passphrase)
+      : null;
+
+    // API 키 유효성 검증
+    const isValid = await this.validateApiKeys(
+      createDto.exchange,
+      createDto.apiKey,
+      createDto.secretKey,
+      createDto.passphrase,
+    );
+
+    if (!isValid) {
+      throw new BadRequestException('유효하지 않은 API 키입니다.');
+    }
+
+    const account = this.exchangeAccountRepository.create({
+      userId,
+      exchange: createDto.exchange,
+      apiKey: encryptedApiKey,
+      secretKey: encryptedSecretKey,
+      passphrase: encryptedPassphrase,
+      isTestnet: createDto.isTestnet || false,
+      status: AccountStatus.ACTIVE,
+      metadata: createDto.metadata || {},
+    });
+
+    return await this.exchangeAccountRepository.save(account);
+  }
+
+  /**
+   * 거래소 계정 목록 조회
+   */
+  async getExchangeAccounts(userId: string): Promise<ExchangeAccount[]> {
+    return await this.exchangeAccountRepository.find({
+      where: { userId },
+      select: [
+        'id',
+        'exchange',
+        'isTestnet',
+        'status',
+        'metadata',
+        'createdAt',
+        'updatedAt',
+      ],
+    });
+  }
+
+  /**
+   * 특정 거래소 계정 조회
+   */
+  async getExchangeAccount(
+    userId: string,
+    accountId: string,
+  ): Promise<ExchangeAccount> {
+    const account = await this.exchangeAccountRepository.findOne({
+      where: { id: accountId, userId },
+      select: [
+        'id',
+        'exchange',
+        'isTestnet',
+        'status',
+        'metadata',
+        'createdAt',
+        'updatedAt',
+      ],
+    });
+
+    if (!account) {
+      throw new BadRequestException('거래소 계정을 찾을 수 없습니다.');
+    }
+
+    return account;
+  }
+
+  /**
+   * 거래소 계정 업데이트
+   */
+  async updateExchangeAccount(
+    userId: string,
+    accountId: string,
+    updateDto: UpdateExchangeAccountDto,
+  ): Promise<ExchangeAccount> {
+    const account = await this.exchangeAccountRepository.findOne({
+      where: { id: accountId, userId },
+    });
+
+    if (!account) {
+      throw new BadRequestException('거래소 계정을 찾을 수 없습니다.');
+    }
+
+    // API 키 업데이트 시 재암호화 및 검증
+    if (updateDto.apiKey || updateDto.secretKey) {
+      const apiKey = updateDto.apiKey || this.decryptData(account.apiKey);
+      const secretKey = updateDto.secretKey || this.decryptData(account.secretKey);
+      const passphrase = updateDto.passphrase || 
+        (account.passphrase ? this.decryptData(account.passphrase) : undefined);
+
+      const isValid = await this.validateApiKeys(
+        account.exchange,
+        apiKey,
+        secretKey,
+        passphrase,
+      );
+
+      if (!isValid) {
+        throw new BadRequestException('유효하지 않은 API 키입니다.');
+      }
+
+      if (updateDto.apiKey) {
+        account.apiKey = this.encryptData(updateDto.apiKey);
+      }
+      if (updateDto.secretKey) {
+        account.secretKey = this.encryptData(updateDto.secretKey);
+      }
+      if (updateDto.passphrase) {
+        account.passphrase = this.encryptData(updateDto.passphrase);
+      }
+    }
+
+    if (updateDto.status !== undefined) {
+      account.status = updateDto.status;
+    }
+
+    if (updateDto.metadata) {
+      account.metadata = { ...account.metadata, ...updateDto.metadata };
+    }
+
+    return await this.exchangeAccountRepository.save(account);
+  }
+
+  /**
+   * 거래소 계정 삭제
+   */
+  async deleteExchangeAccount(
+    userId: string,
+    accountId: string,
+  ): Promise<void> {
+    const result = await this.exchangeAccountRepository.delete({
+      id: accountId,
       userId,
     });
-    return this.accountsRepository.save(created);
+
+    if (result.affected === 0) {
+      throw new BadRequestException('거래소 계정을 찾을 수 없습니다.');
+    }
   }
 
-  async prepareExecution(symbol: string, options?: { useTestnet?: boolean }) {
-    const useTestnet = options?.useTestnet ?? true;
-
-    const diagnostics = await Promise.all(
-      this.adapters.map(async (adapter) => {
-        const checkedAt = new Date().toISOString();
-        try {
-          const available = await adapter.findSymbol(symbol, { useTestnet });
-          return {
-            exchange: adapter.exchange,
-            available,
-            checkedAt,
-          } satisfies ExchangeAvailabilityDiagnostic;
-        } catch (error) {
-          return {
-            exchange: adapter.exchange,
-            available: false,
-            checkedAt,
-            error: this.formatError(error),
-          } satisfies ExchangeAvailabilityDiagnostic;
-        }
-      }),
-    );
-
-    return {
-      symbol,
-      exchangesReady: diagnostics
-        .filter((item) => item.available)
-        .map((item) => item.exchange),
-      diagnostics,
-    };
-  }
-
-  async verifyCredentials(
-    dto: VerifyExchangeCredentialsDto,
-  ): Promise<VerifyExchangeCredentialsResponseDto> {
-    const fingerprint = createHash('sha256')
-      .update(`${dto.exchange}:${dto.mode}:${dto.apiKeyId}`)
-      .digest('hex')
-      .slice(0, 16);
-
-    const baseResponse: VerifyExchangeCredentialsResponseDto = {
-      exchange: dto.exchange,
-      mode: dto.mode,
-      connected: false,
-      fingerprint,
-      lastCheckedAt: new Date().toISOString(),
-      balances: [],
-    };
-
-    const useTestnet = dto.mode === 'TESTNET';
-
+  /**
+   * 거래소별 API 검증
+   */
+  private async validateApiKeys(
+    exchange: ExchangeType,
+    apiKey: string,
+    secretKey: string,
+    passphrase?: string,
+  ): Promise<boolean> {
     try {
-      let balances: ExchangeBalanceBreakdownDto[] = [];
-
-      switch (dto.exchange) {
-        case 'BINANCE':
-          balances = await this.verifyBinance(dto, useTestnet);
-          break;
-        case 'BYBIT':
-          balances = await this.verifyBybit(dto, useTestnet);
-          break;
-        case 'OKX':
-          balances = await this.verifyOkx(dto, useTestnet);
-          break;
-        case 'GATEIO':
-          balances = await this.verifyGateio(dto, useTestnet);
-          break;
-        case 'BITGET':
-          balances = await this.verifyBitget(dto, useTestnet);
-          break;
+      switch (exchange) {
+        case ExchangeType.BINANCE:
+          return await this.validateBinanceKeys(apiKey, secretKey);
+        case ExchangeType.BYBIT:
+          return await this.validateBybitKeys(apiKey, secretKey);
+        case ExchangeType.OKX:
+          return await this.validateOkxKeys(apiKey, secretKey, passphrase);
+        case ExchangeType.GATE:
+          return await this.validateGateKeys(apiKey, secretKey);
+        case ExchangeType.BITGET:
+          return await this.validateBitgetKeys(apiKey, secretKey, passphrase);
         default:
-          throw new Error(`Unsupported exchange ${String(dto.exchange)}`);
+          throw new BadRequestException(`지원하지 않는 거래소: ${exchange}`);
       }
-
-      if (balances.length === 0) {
-        throw new Error('No balances returned by exchange');
-      }
-
-      return {
-        ...baseResponse,
-        connected: true,
-        balances: balances.map((balance) => ({
-          ...balance,
-          total: this.roundNumber(balance.total),
-          available: this.roundNumber(balance.available),
-        })),
-      };
     } catch (error) {
-      return {
-        ...baseResponse,
-        error: this.formatError(error),
-      };
+      this.logger.error(`API 키 검증 실패: ${error.message}`);
+      return false;
     }
   }
 
-  private async verifyBinance(
-    dto: VerifyExchangeCredentialsDto,
-    useTestnet: boolean,
-  ): Promise<ExchangeBalanceBreakdownDto[]> {
-    const balances: ExchangeBalanceBreakdownDto[] = [];
-
-    const headers: Record<string, string> = {
-      'X-MBX-APIKEY': dto.apiKeyId,
-    };
-
-    const signQuery = (
-      params?: Record<string, string | number | undefined>,
-    ) => {
-      const search = new URLSearchParams();
-      search.set('timestamp', Date.now().toString());
-      search.set('recvWindow', '5000');
-      if (params) {
-        for (const [key, value] of Object.entries(params)) {
-          if (value !== undefined && value !== null) {
-            search.set(key, String(value));
-          }
-        }
-      }
-      const signature = createHmac('sha256', dto.apiKeySecret)
-        .update(search.toString())
-        .digest('hex');
-      search.set('signature', signature);
-      return search.toString();
-    };
-
-    const futuresBase = useTestnet
-      ? 'https://testnet.binancefuture.com'
-      : 'https://fapi.binance.com';
-    const spotBase = useTestnet
-      ? 'https://testnet.binance.vision'
-      : 'https://api.binance.com';
-
-    const futuresResponse = await fetch(
-      `${futuresBase}/fapi/v2/account?${signQuery()}`,
-      { headers },
-    );
-
-    if (!futuresResponse.ok) {
-      const text = await futuresResponse.text();
-      throw new Error(
-        `Binance futures verification failed (${futuresResponse.status}): ${text || futuresResponse.statusText}`,
-      );
-    }
-
-    const futuresData = (await futuresResponse.json()) as {
-      totalWalletBalance?: string;
-      availableBalance?: string;
-      assets?: Array<{
-        asset: string;
-        walletBalance?: string;
-        availableBalance?: string;
-      }>;
-    };
-
-    const futuresAsset = futuresData.assets?.find(
-      (asset) => asset.asset === 'USDT',
-    );
-
-    const futuresTotal =
-      this.parseNumber(futuresData.totalWalletBalance) ||
-      this.parseNumber(futuresAsset?.walletBalance);
-    const futuresAvailable =
-      this.parseNumber(futuresData.availableBalance) ||
-      this.parseNumber(futuresAsset?.availableBalance);
-
-    balances.push({
-      type: 'FUTURES',
-      asset: 'USDT',
-      total: futuresTotal,
-      available: futuresAvailable,
-    });
-
-    try {
-      const spotResponse = await fetch(
-        `${spotBase}/api/v3/account?${signQuery()}`,
-        { headers },
-      );
-      if (spotResponse.ok) {
-        const spotData = (await spotResponse.json()) as {
-          balances?: Array<{ asset: string; free?: string; locked?: string }>;
-        };
-        const spot = spotData.balances?.find((item) => item.asset === 'USDT');
-        if (spot) {
-          const available = this.parseNumber(spot.free);
-          const locked = this.parseNumber(spot.locked);
-          balances.push({
-            type: 'SPOT',
-            asset: 'USDT',
-            total: available + locked,
-            available,
-          });
-        }
-      }
-    } catch (error) {
-      // Spot access is optional – ignore failures to avoid masking valid futures credentials.
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('binance spot verification skipped', error);
-      }
-    }
-
-    try {
-      const marginResponse = await fetch(
-        `${spotBase}/sapi/v1/margin/account?${signQuery()}`,
-        { headers },
-      );
-      if (marginResponse.ok) {
-        const marginData = (await marginResponse.json()) as {
-          totalNetAssetOfUsdt?: string;
-          totalAssetOfUsdt?: string;
-          availableBalance?: string;
-        };
-        const total =
-          this.parseNumber(marginData.totalNetAssetOfUsdt) ||
-          this.parseNumber(marginData.totalAssetOfUsdt);
-        const available = this.parseNumber(marginData.availableBalance);
-        if (total || available) {
-          balances.push({
-            type: 'MARGIN',
-            asset: 'USDT',
-            total,
-            available,
-          });
-        }
-      }
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('binance margin verification skipped', error);
-      }
-    }
-
-    return balances;
-  }
-
-  private async verifyBybit(
-    dto: VerifyExchangeCredentialsDto,
-    useTestnet: boolean,
-  ): Promise<ExchangeBalanceBreakdownDto[]> {
-    const baseUrl = useTestnet
-      ? 'https://api-testnet.bybit.com'
-      : 'https://api.bybit.com';
-
-    const timestamp = Date.now().toString();
-    const recvWindow = '5000';
-    const query = new URLSearchParams({
-      accountType: 'UNIFIED',
-      coin: 'USDT',
-    }).toString();
-
-    const signature = createHmac('sha256', dto.apiKeySecret)
-      .update(`${timestamp}${dto.apiKeyId}${recvWindow}${query}`)
+  /**
+   * Binance API 검증
+   */
+  private async validateBinanceKeys(
+    apiKey: string,
+    secretKey: string,
+  ): Promise<boolean> {
+    const timestamp = Date.now();
+    const queryString = `timestamp=${timestamp}`;
+    const signature = crypto
+      .createHmac('sha256', secretKey)
+      .update(queryString)
       .digest('hex');
 
-    const response = await fetch(
-      `${baseUrl}/v5/account/wallet-balance?${query}`,
-      {
-        headers: {
-          'X-BAPI-API-KEY': dto.apiKeyId,
-          'X-BAPI-TIMESTAMP': timestamp,
-          'X-BAPI-RECV-WINDOW': recvWindow,
-          'X-BAPI-SIGN': signature,
-        },
-      },
-    );
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(
-        `Bybit verification failed (${response.status}): ${text || response.statusText}`,
-      );
-    }
-
-    const payload = (await response.json()) as {
-      retCode?: number;
-      retMsg?: string;
-      result?: {
-        list?: Array<{
-          coin?: Array<{
-            coin: string;
-            equity?: string;
-            walletBalance?: string;
-            availableToWithdraw?: string;
-            availableToTrade?: string;
-          }>;
-        }>;
-      };
-    };
-
-    if (payload.retCode !== 0) {
-      throw new Error(payload.retMsg || 'Invalid Bybit credentials');
-    }
-
-    const coin = payload.result?.list?.[0]?.coin?.find(
-      (item) => item.coin === 'USDT',
-    );
-
-    if (!coin) {
-      return [];
-    }
-
-    const total =
-      this.parseNumber(coin.equity) || this.parseNumber(coin.walletBalance);
-    const available =
-      this.parseNumber(coin.availableToWithdraw) ||
-      this.parseNumber(coin.availableToTrade);
-
-    return [
-      {
-        type: 'FUTURES',
-        asset: 'USDT',
-        total,
-        available,
-      },
-    ];
-  }
-
-  private async verifyOkx(
-    dto: VerifyExchangeCredentialsDto,
-    useTestnet: boolean,
-  ): Promise<ExchangeBalanceBreakdownDto[]> {
-    if (!dto.passphrase) {
-      throw new Error('Passphrase is required for OKX');
-    }
-
-    const baseUrl = 'https://www.okx.com';
-    const path = '/api/v5/account/balance';
-    const query = 'ccy=USDT';
-    const method = 'GET';
-    const timestamp = (Date.now() / 1000).toFixed(3);
-
-    const signature = createHmac('sha256', dto.apiKeySecret)
-      .update(`${timestamp}${method}${path}?${query}`)
-      .digest('base64');
-
-    const headers: Record<string, string> = {
-      'OK-ACCESS-KEY': dto.apiKeyId,
-      'OK-ACCESS-SIGN': signature,
-      'OK-ACCESS-TIMESTAMP': timestamp,
-      'OK-ACCESS-PASSPHRASE': dto.passphrase,
-    };
-
-    if (useTestnet) {
-      headers['x-simulated-trading'] = '1';
-    }
-
-    const response = await fetch(`${baseUrl}${path}?${query}`, {
-      headers,
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(
-        `OKX verification failed (${response.status}): ${text || response.statusText}`,
-      );
-    }
-
-    const payload = (await response.json()) as {
-      code?: string;
-      msg?: string;
-      data?: Array<{
-        totalEq?: string;
-        availEq?: string;
-        details?: Array<{
-          ccy: string;
-          eq?: string;
-          cashBal?: string;
-          availBal?: string;
-        }>;
-      }>;
-    };
-
-    if (payload.code && payload.code !== '0') {
-      throw new Error(payload.msg || 'Invalid OKX credentials');
-    }
-
-    const account = payload.data?.[0];
-    const detail = account?.details?.find((item) => item.ccy === 'USDT');
-
-    const total =
-      this.parseNumber(detail?.eq) ||
-      this.parseNumber(account?.totalEq) ||
-      this.parseNumber(detail?.cashBal);
-    const available =
-      this.parseNumber(detail?.availBal) || this.parseNumber(account?.availEq);
-
-    return [
-      {
-        type: 'FUTURES',
-        asset: 'USDT',
-        total,
-        available,
-      },
-    ];
-  }
-
-  private async verifyGateio(
-    dto: VerifyExchangeCredentialsDto,
-    useTestnet: boolean,
-  ): Promise<ExchangeBalanceBreakdownDto[]> {
-    const baseUrl = useTestnet
-      ? 'https://fx-api-testnet.gateio.ws'
-      : 'https://api.gateio.ws';
-
-    const request = async (path: string, query?: string) => {
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const queryString = query ?? '';
-      const body = '';
-      const signature = createHmac('sha512', dto.apiKeySecret)
-        .update([timestamp, 'GET', path, queryString, body].join('\n'))
-        .digest('hex');
-      const url = `${baseUrl}${path}${queryString ? `?${queryString}` : ''}`;
-      const response = await fetch(url, {
-        headers: {
-          KEY: dto.apiKeyId,
-          Timestamp: timestamp,
-          SIGN: signature,
-        },
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(
-          `Gate.io request failed (${response.status}): ${text || response.statusText}`,
-        );
-      }
-      return response.json();
-    };
-
-    const balances: ExchangeBalanceBreakdownDto[] = [];
-
-    const futuresData = (await request('/api/v4/futures/usdt/accounts')) as {
-      available?: string;
-      total?: string;
-      balance?: string;
-      account?: string;
-      availableBalance?: string;
-    };
-
-    const futuresTotal =
-      this.parseNumber(futuresData.total) ||
-      this.parseNumber(futuresData.balance) ||
-      this.parseNumber(futuresData.account);
-    const futuresAvailable =
-      this.parseNumber(futuresData.available) ||
-      this.parseNumber(futuresData.availableBalance);
-
-    balances.push({
-      type: 'FUTURES',
-      asset: 'USDT',
-      total: futuresTotal,
-      available: futuresAvailable,
-    });
+    const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
 
     try {
-      const spotData = (await request(
-        '/api/v4/spot/accounts',
-        'currency=USDT',
-      )) as
-        | Array<{
-            currency: string;
-            available?: string;
-            locked?: string;
-            freeze?: string;
-          }>
-        | {
-            currency?: string;
-            available?: string;
-            locked?: string;
-            freeze?: string;
-          };
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'X-MBX-APIKEY': apiKey,
+        },
+      });
 
-      const spotAccount = Array.isArray(spotData)
-        ? spotData.find((item) => item.currency === 'USDT')
-        : spotData?.currency === 'USDT'
-          ? spotData
-          : undefined;
-
-      if (spotAccount) {
-        const available = this.parseNumber(
-          spotAccount.available ?? spotAccount.freeze,
-        );
-        const locked = this.parseNumber(spotAccount.locked);
-        balances.push({
-          type: 'SPOT',
-          asset: 'USDT',
-          total: available + locked,
-          available,
-        });
-      }
+      return response.ok;
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('gateio spot verification skipped', error);
-      }
+      this.logger.error(`Binance API 검증 오류: ${error.message}`);
+      return false;
     }
-
-    return balances;
   }
 
-  private async verifyBitget(
-    dto: VerifyExchangeCredentialsDto,
-    useTestnet: boolean,
-  ): Promise<ExchangeBalanceBreakdownDto[]> {
-    if (!dto.passphrase) {
-      throw new Error('Passphrase is required for Bitget');
+  /**
+   * Bybit API 검증
+   */
+  private async validateBybitKeys(
+    apiKey: string,
+    secretKey: string,
+  ): Promise<boolean> {
+    const timestamp = Date.now();
+    const recvWindow = 5000;
+    const queryString = `api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
+    
+    const signature = crypto
+      .createHmac('sha256', secretKey)
+      .update(queryString)
+      .digest('hex');
+
+    const url = `https://api.bybit.com/v5/account/wallet-balance?${queryString}&sign=${signature}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+      });
+
+      const data = await response.json();
+      return data.retCode === 0;
+    } catch (error) {
+      this.logger.error(`Bybit API 검증 오류: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * OKX API 검증
+   */
+  private async validateOkxKeys(
+    apiKey: string,
+    secretKey: string,
+    passphrase?: string,
+  ): Promise<boolean> {
+    const timestamp = new Date().toISOString();
+    const method = 'GET';
+    const requestPath = '/api/v5/account/balance';
+    
+    const preSign = `${timestamp}${method}${requestPath}`;
+    const signature = crypto
+      .createHmac('sha256', secretKey)
+      .update(preSign)
+      .digest('base64');
+
+    const url = `https://www.okx.com${requestPath}`;
+
+    // 헤더 객체를 미리 구성
+    const headers: Record<string, string> = {
+      'OK-ACCESS-KEY': apiKey,
+      'OK-ACCESS-SIGN': signature,
+      'OK-ACCESS-TIMESTAMP': timestamp,
+      'Content-Type': 'application/json',
+    };
+
+    // passphrase가 있을 때만 헤더에 추가
+    if (passphrase) {
+      headers['OK-ACCESS-PASSPHRASE'] = passphrase;
     }
 
-    const baseUrl = useTestnet
-      ? 'https://api-testnet.bitget.com'
-      : 'https://api.bitget.com';
-
-    const request = async (path: string, query?: string) => {
-      const timestamp = Date.now().toString();
-      const queryString = query ?? '';
-      const signature = createHmac('sha256', dto.apiKeySecret)
-        .update(`${timestamp}GET${path}${queryString}`)
-        .digest('base64');
-      const url = `${baseUrl}${path}${queryString ? `?${queryString}` : ''}`;
+    try {
       const response = await fetch(url, {
+        method: 'GET',
+        headers,
+      });
+
+      const data = await response.json();
+      return data.code === '0';
+    } catch (error) {
+      this.logger.error(`OKX API 검증 오류: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Gate.io API 검증
+   */
+  private async validateGateKeys(
+    apiKey: string,
+    secretKey: string,
+  ): Promise<boolean> {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const method = 'GET';
+    const requestPath = '/api/v4/spot/accounts';
+    const queryString = '';
+    const hashedPayload = crypto.createHash('sha512').update('').digest('hex');
+    
+    const preSign = `${method}\n${requestPath}\n${queryString}\n${hashedPayload}\n${timestamp}`;
+    const signature = crypto
+      .createHmac('sha512', secretKey)
+      .update(preSign)
+      .digest('hex');
+
+    const url = `https://api.gateio.ws${requestPath}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
         headers: {
-          'ACCESS-KEY': dto.apiKeyId,
-          'ACCESS-SIGN': signature,
-          'ACCESS-PASSPHRASE': dto.passphrase,
-          'ACCESS-TIMESTAMP': timestamp,
+          'KEY': apiKey,
+          'SIGN': signature,
+          'Timestamp': timestamp.toString(),
           'Content-Type': 'application/json',
         },
       });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(
-          `Bitget request failed (${response.status}): ${text || response.statusText}`,
-        );
-      }
-      return response.json();
+
+      return response.ok;
+    } catch (error) {
+      this.logger.error(`Gate.io API 검증 오류: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Bitget API 검증
+   */
+  private async validateBitgetKeys(
+    apiKey: string,
+    secretKey: string,
+    passphrase?: string,
+  ): Promise<boolean> {
+    const timestamp = Date.now().toString();
+    const method = 'GET';
+    const requestPath = '/api/spot/v1/account/assets';
+    
+    const preSign = `${timestamp}${method}${requestPath}`;
+    const signature = crypto
+      .createHmac('sha256', secretKey)
+      .update(preSign)
+      .digest('base64');
+
+    const url = `https://api.bitget.com${requestPath}`;
+
+    // 헤더 객체를 미리 구성
+    const headers: Record<string, string> = {
+      'ACCESS-KEY': apiKey,
+      'ACCESS-SIGN': signature,
+      'ACCESS-TIMESTAMP': timestamp,
+      'Content-Type': 'application/json',
     };
 
-    const balances: ExchangeBalanceBreakdownDto[] = [];
-
-    const futuresData = (await request(
-      '/api/mix/v1/account/accounts',
-      'productType=umcbl',
-    )) as {
-      data?: Array<{
-        equity?: string;
-        usdtEquity?: string;
-        availableBalance?: string;
-        available?: string;
-      }>;
-    };
-
-    const futuresAccount = futuresData.data?.[0];
-
-    const futuresTotal =
-      this.parseNumber(futuresAccount?.equity) ||
-      this.parseNumber(futuresAccount?.usdtEquity);
-    const futuresAvailable =
-      this.parseNumber(futuresAccount?.availableBalance) ||
-      this.parseNumber(futuresAccount?.available);
-
-    balances.push({
-      type: 'FUTURES',
-      asset: 'USDT',
-      total: futuresTotal,
-      available: futuresAvailable,
-    });
+    // passphrase가 있을 때만 헤더에 추가 (수정된 부분)
+    if (passphrase) {
+      headers['ACCESS-PASSPHRASE'] = passphrase;
+    }
 
     try {
-      const spotData = (await request(
-        '/api/spot/v1/account/assets',
-        'coin=USDT',
-      )) as {
-        data?: Array<{
-          coin: string;
-          available?: string;
-          balance?: string;
-          frozen?: string;
-          locked?: string;
-        }>;
-      };
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+      });
 
-      const spotAccount = spotData.data?.find((item) => item.coin === 'USDT');
-
-      if (spotAccount) {
-        const available =
-          this.parseNumber(spotAccount.available) ||
-          this.parseNumber(spotAccount.balance);
-        const frozen =
-          this.parseNumber(spotAccount.frozen) ||
-          this.parseNumber(spotAccount.locked);
-        balances.push({
-          type: 'SPOT',
-          asset: 'USDT',
-          total: available + frozen,
-          available,
-        });
-      }
+      const data = await response.json();
+      return data.code === '00000';
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('bitget spot verification skipped', error);
-      }
+      this.logger.error(`Bitget API 검증 오류: ${error.message}`);
+      return false;
     }
-
-    return balances;
   }
 
-  private parseNumber(value: unknown, fallback = 0) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
+  /**
+   * 거래소 API 호출 (거래 실행용)
+   */
+  async executeOrder(
+    userId: string,
+    exchangeType: ExchangeType,
+    orderData: any,
+  ): Promise<any> {
+    const account = await this.exchangeAccountRepository.findOne({
+      where: {
+        userId,
+        exchange: exchangeType,
+        status: AccountStatus.ACTIVE,
+      },
+    });
+
+    if (!account) {
+      throw new BadRequestException(
+        `활성화된 ${exchangeType} 거래소 계정이 없습니다.`,
+      );
     }
-    if (typeof value === 'string') {
-      const normalized = value.trim();
-      if (!normalized) {
-        return fallback;
-      }
-      const parsed = Number(normalized);
-      return Number.isFinite(parsed) ? parsed : fallback;
+
+    const apiKey = this.decryptData(account.apiKey);
+    const secretKey = this.decryptData(account.secretKey);
+    const passphrase = account.passphrase
+      ? this.decryptData(account.passphrase)
+      : undefined;
+
+    switch (exchangeType) {
+      case ExchangeType.BINANCE:
+        return await this.executeBinanceOrder(apiKey, secretKey, orderData);
+      case ExchangeType.BYBIT:
+        return await this.executeBybitOrder(apiKey, secretKey, orderData);
+      case ExchangeType.OKX:
+        return await this.executeOkxOrder(apiKey, secretKey, passphrase, orderData);
+      case ExchangeType.GATE:
+        return await this.executeGateOrder(apiKey, secretKey, orderData);
+      case ExchangeType.BITGET:
+        return await this.executeBitgetOrder(apiKey, secretKey, passphrase, orderData);
+      default:
+        throw new BadRequestException(`지원하지 않는 거래소: ${exchangeType}`);
     }
-    return fallback;
   }
 
-  private roundNumber(value: number, precision = 2) {
-    if (!Number.isFinite(value)) {
-      return 0;
+  /**
+   * Binance 주문 실행
+   */
+  private async executeBinanceOrder(
+    apiKey: string,
+    secretKey: string,
+    orderData: any,
+  ): Promise<any> {
+    const timestamp = Date.now();
+    const params = {
+      symbol: orderData.symbol,
+      side: orderData.side,
+      type: orderData.type,
+      quantity: orderData.quantity,
+      timestamp,
+      ...orderData.additionalParams,
+    };
+
+    const queryString = Object.entries(params)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&');
+
+    const signature = crypto
+      .createHmac('sha256', secretKey)
+      .update(queryString)
+      .digest('hex');
+
+    const url = `https://api.binance.com/api/v3/order?${queryString}&signature=${signature}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-MBX-APIKEY': apiKey,
+        },
+      });
+
+      return await response.json();
+    } catch (error) {
+      this.logger.error(`Binance 주문 실행 오류: ${error.message}`);
+      throw error;
     }
-    const factor = 10 ** precision;
-    return Math.round(value * factor) / factor;
   }
 
-  private formatError(error: unknown) {
-    if (error instanceof Error) {
-      return error.message;
+  /**
+   * Bybit 주문 실행
+   */
+  private async executeBybitOrder(
+    apiKey: string,
+    secretKey: string,
+    orderData: any,
+  ): Promise<any> {
+    const timestamp = Date.now();
+    const params = {
+      category: 'spot',
+      symbol: orderData.symbol,
+      side: orderData.side,
+      orderType: orderData.type,
+      qty: orderData.quantity,
+      timestamp,
+      api_key: apiKey,
+      ...orderData.additionalParams,
+    };
+
+    const sortedParams = Object.keys(params)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = params[key];
+        return acc;
+      }, {});
+
+    const queryString = Object.entries(sortedParams)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&');
+
+    const signature = crypto
+      .createHmac('sha256', secretKey)
+      .update(queryString)
+      .digest('hex');
+
+    const url = `https://api.bybit.com/v5/order/create`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ...params, sign: signature }),
+      });
+
+      return await response.json();
+    } catch (error) {
+      this.logger.error(`Bybit 주문 실행 오류: ${error.message}`);
+      throw error;
     }
-    if (typeof error === 'string') {
-      return error;
+  }
+
+  /**
+   * OKX 주문 실행
+   */
+  private async executeOkxOrder(
+    apiKey: string,
+    secretKey: string,
+    passphrase: string | undefined,
+    orderData: any,
+  ): Promise<any> {
+    const timestamp = new Date().toISOString();
+    const method = 'POST';
+    const requestPath = '/api/v5/trade/order';
+    
+    const body = JSON.stringify({
+      instId: orderData.symbol,
+      tdMode: 'cash',
+      side: orderData.side,
+      ordType: orderData.type,
+      sz: orderData.quantity,
+      ...orderData.additionalParams,
+    });
+
+    const preSign = `${timestamp}${method}${requestPath}${body}`;
+    const signature = crypto
+      .createHmac('sha256', secretKey)
+      .update(preSign)
+      .digest('base64');
+
+    const url = `https://www.okx.com${requestPath}`;
+
+    // 헤더 객체를 미리 구성 (수정된 부분)
+    const headers: Record<string, string> = {
+      'OK-ACCESS-KEY': apiKey,
+      'OK-ACCESS-SIGN': signature,
+      'OK-ACCESS-TIMESTAMP': timestamp,
+      'Content-Type': 'application/json',
+    };
+
+    // passphrase가 있을 때만 헤더에 추가
+    if (passphrase) {
+      headers['OK-ACCESS-PASSPHRASE'] = passphrase;
     }
-    return 'Unknown error';
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+      });
+
+      return await response.json();
+    } catch (error) {
+      this.logger.error(`OKX 주문 실행 오류: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Gate.io 주문 실행
+   */
+  private async executeGateOrder(
+    apiKey: string,
+    secretKey: string,
+    orderData: any,
+  ): Promise<any> {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const method = 'POST';
+    const requestPath = '/api/v4/spot/orders';
+    
+    const body = JSON.stringify({
+      currency_pair: orderData.symbol,
+      type: orderData.orderType || 'limit',
+      side: orderData.side,
+      amount: orderData.quantity,
+      ...orderData.additionalParams,
+    });
+
+    const hashedPayload = crypto
+      .createHash('sha512')
+      .update(body)
+      .digest('hex');
+    
+    const preSign = `${method}\n${requestPath}\n\n${hashedPayload}\n${timestamp}`;
+    const signature = crypto
+      .createHmac('sha512', secretKey)
+      .update(preSign)
+      .digest('hex');
+
+    const url = `https://api.gateio.ws${requestPath}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'KEY': apiKey,
+          'SIGN': signature,
+          'Timestamp': timestamp.toString(),
+          'Content-Type': 'application/json',
+        },
+        body,
+      });
+
+      return await response.json();
+    } catch (error) {
+      this.logger.error(`Gate.io 주문 실행 오류: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Bitget 주문 실행 (수정된 부분)
+   */
+  private async executeBitgetOrder(
+    apiKey: string,
+    secretKey: string,
+    passphrase: string | undefined,
+    orderData: any,
+  ): Promise<any> {
+    const timestamp = Date.now().toString();
+    const method = 'POST';
+    const requestPath = '/api/spot/v1/trade/orders';
+    
+    const body = JSON.stringify({
+      symbol: orderData.symbol,
+      side: orderData.side,
+      orderType: orderData.type,
+      size: orderData.quantity,
+      ...orderData.additionalParams,
+    });
+
+    const preSign = `${timestamp}${method}${requestPath}${body}`;
+    const signature = crypto
+      .createHmac('sha256', secretKey)
+      .update(preSign)
+      .digest('base64');
+
+    const url = `https://api.bitget.com${requestPath}`;
+
+    // 헤더 객체를 미리 구성 (핵심 수정 부분!)
+    const headers: Record<string, string> = {
+      'ACCESS-KEY': apiKey,
+      'ACCESS-SIGN': signature,
+      'ACCESS-TIMESTAMP': timestamp,
+      'Content-Type': 'application/json',
+    };
+
+    // passphrase가 있을 때만 헤더에 추가
+    if (passphrase) {
+      headers['ACCESS-PASSPHRASE'] = passphrase;
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+      });
+
+      return await response.json();
+    } catch (error) {
+      this.logger.error(`Bitget 주문 실행 오류: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 데이터 암호화
+   */
+  private encryptData(data: string): string {
+    const algorithm = 'aes-256-cbc';
+    const key = Buffer.from(
+      this.configService.get<string>('ENCRYPTION_KEY'),
+      'hex',
+    );
+    const iv = crypto.randomBytes(16);
+    
+    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    let encrypted = cipher.update(data, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    return `${iv.toString('hex')}:${encrypted}`;
+  }
+
+  /**
+   * 데이터 복호화
+   */
+  private decryptData(encryptedData: string): string {
+    const algorithm = 'aes-256-cbc';
+    const key = Buffer.from(
+      this.configService.get<string>('ENCRYPTION_KEY'),
+      'hex',
+    );
+    
+    const [ivHex, encrypted] = encryptedData.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+    
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    
+    return decrypted;
+  }
+
+  /**
+   * 거래소 계정 상태 확인
+   */
+  async checkAccountStatus(
+    userId: string,
+    exchangeType: ExchangeType,
+  ): Promise<boolean> {
+    const account = await this.exchangeAccountRepository.findOne({
+      where: {
+        userId,
+        exchange: exchangeType,
+        status: AccountStatus.ACTIVE,
+      },
+    });
+
+    if (!account) {
+      return false;
+    }
+
+    const apiKey = this.decryptData(account.apiKey);
+    const secretKey = this.decryptData(account.secretKey);
+    const passphrase = account.passphrase
+      ? this.decryptData(account.passphrase)
+      : undefined;
+
+    return await this.validateApiKeys(
+      exchangeType,
+      apiKey,
+      secretKey,
+      passphrase,
+    );
   }
 }
