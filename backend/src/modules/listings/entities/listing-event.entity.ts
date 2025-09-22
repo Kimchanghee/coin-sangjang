@@ -9,6 +9,7 @@ export interface MarketAvailabilitySnapshot {
   exchange: string;
   available: boolean;
   checkedAt: string;
+  error?: string;
 }
 
 @Entity('listing_events')

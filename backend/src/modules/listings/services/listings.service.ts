@@ -44,14 +44,17 @@ export class ListingsService {
 
     if (normalizedSymbol && this.exchangesService) {
       try {
-        const availability =
-          await this.exchangesService.prepareExecution(normalizedSymbol);
+        const availability = await this.exchangesService.prepareExecution(
+          normalizedSymbol,
+          { useTestnet: false },
+        );
         if (availability?.diagnostics?.length) {
           const snapshot: MarketAvailabilitySnapshot[] =
             availability.diagnostics.map((item) => ({
               exchange: item.exchange,
               available: Boolean(item.available),
-              checkedAt: new Date().toISOString(),
+              checkedAt: item.checkedAt ?? new Date().toISOString(),
+              error: item.error,
             }));
           saved = await this.listingRepository.save({
             ...saved,
