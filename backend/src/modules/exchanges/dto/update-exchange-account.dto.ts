@@ -14,6 +14,7 @@ import {
   type ExchangeSlug,
   type NetworkMode,
 } from '../exchange.constants';
+import type { ExchangeAccountMetadata } from './create-exchange-account.dto';
 
 export class UpdateExchangeAccountDto {
   @IsOptional()
@@ -48,5 +49,5 @@ export class UpdateExchangeAccountDto {
 
   @IsOptional()
   @IsObject()
-  metadata?: Record<string, unknown>;
+  metadata?: ExchangeAccountMetadata;
 }

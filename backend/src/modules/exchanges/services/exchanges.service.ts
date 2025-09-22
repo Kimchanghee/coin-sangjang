@@ -5,21 +5,31 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 import { ExchangeAccount } from '../entities/exchange-account.entity';
-import { CreateExchangeAccountDto } from '../dto/create-exchange-account.dto';
+import type { ExchangeAccountMetadata } from '../dto/create-exchange-account.dto';
 import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
+import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
 import {
-  EXCHANGE_SYMBOL,
   ExchangeAvailabilityDiagnostic,
-  ExchangeType,
+  OrderRequest,
   PrepareExecutionOptions,
   PrepareExecutionResult,
   SUPPORTED_EXCHANGES,
 } from '../types/exchange.types';
-import type { ExchangeSlug } from '../exchange.constants';
+import {
+  VerifyExchangeCredentialsDto,
+  type VerifyExchangeCredentialsResponseDto,
+} from '../dto/verify-exchange-credentials.dto';
+import type { ExchangeSlug, NetworkMode } from '../exchange.constants';
+
+type SupportedExchangeInput = ExchangeSlug | 'GATE';
+type UpsertPayload = UpsertExchangeAccountDto & {
+  metadata?: ExchangeAccountMetadata;
+};
 
 @Injectable()
 export class ExchangesService {
   private readonly logger = new Logger(ExchangesService.name);
+  private encryptionKey?: Buffer;
 
   constructor(
     @InjectRepository(ExchangeAccount)
@@ -37,55 +47,82 @@ export class ExchangesService {
   /**
    * 거래소 계정 생성 또는 업데이트 (컨트롤러에서 사용)
    */
-  async upsert(userId: string, dto: any): Promise<ExchangeAccount> {
+  async upsert(userId: string, dto: UpsertPayload): Promise<ExchangeAccount> {
+    const exchange = this.normalizeExchangeSlug(dto.exchange);
+    const payload: UpsertPayload = { ...dto, exchange };
+
     const existingAccount = await this.exchangeAccountRepository.findOne({
       where: {
         userId,
-        exchange: dto.exchange,
+        exchange,
       },
     });
 
     if (existingAccount) {
-      // 업데이트
-      return await this.updateExchangeAccount(userId, existingAccount.id, dto);
-    } else {
-      // 생성
-      return await this.createExchangeAccount(userId, dto);
+      return await this.updateExchangeAccount(
+        userId,
+        existingAccount.id,
+        payload,
+      );
     }
+
+    return await this.createExchangeAccount(userId, payload);
   }
 
   /**
    * API 키 검증 (컨트롤러에서 사용)
    */
-  async verifyCredentials(dto: any): Promise<any> {
+  async verifyCredentials(
+    dto: VerifyExchangeCredentialsDto,
+  ): Promise<VerifyExchangeCredentialsResponseDto> {
+    const exchange = this.normalizeExchangeSlug(dto.exchange);
+    const response: VerifyExchangeCredentialsResponseDto = {
+      exchange,
+      mode: dto.mode,
+      connected: false,
+      fingerprint: this.createCredentialFingerprint(
+        exchange,
+        dto.apiKeyId,
+        dto.mode,
+      ),
+      lastCheckedAt: new Date().toISOString(),
+      balances: [],
+    };
+
     try {
-      const isValid = await this.validateApiKeys(
-        dto.exchange,
+      const connected = await this.validateApiKeys(
+        exchange,
         dto.apiKeyId,
         dto.apiKeySecret,
         dto.passphrase,
       );
 
-      return {
-        success: isValid,
-        exchange: dto.exchange,
-        message: isValid ? 'API 키 검증 성공' : 'API 키 검증 실패',
-      };
+      response.connected = connected;
+
+      if (!connected) {
+        response.error = '제공된 API 키가 유효하지 않습니다.';
+      }
     } catch (error) {
-      this.logger.error(`API 키 검증 오류: ${error.message}`);
-      return {
-        success: false,
-        exchange: dto.exchange,
-        message: error.message,
-      };
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'API 키 검증 중 알 수 없는 오류가 발생했습니다.';
+      this.logger.error(`API 키 검증 오류: ${message}`);
+      response.error = message;
     }
+
+    return response;
   }
 
   /**
    * 거래 실행 준비 (컨트롤러에서 사용)
    */
   prepareExecution(
-    normalized: any,
+    normalized: string | { symbol: string },
     options?: PrepareExecutionOptions,
   ): Promise<PrepareExecutionResult> {
     const symbol =
@@ -112,18 +149,19 @@ export class ExchangesService {
    */
   async createExchangeAccount(
     userId: string,
-    createDto: CreateExchangeAccountDto,
+    createDto: UpsertPayload,
   ): Promise<ExchangeAccount> {
+    const exchange = this.normalizeExchangeSlug(createDto.exchange);
     const existingAccount = await this.exchangeAccountRepository.findOne({
       where: {
         userId,
-        exchange: createDto.exchange,
+        exchange,
       },
     });
 
     if (existingAccount) {
       throw new BadRequestException(
-        `${createDto.exchange} 거래소 계정이 이미 존재합니다.`,
+        `${exchange} 거래소 계정이 이미 존재합니다.`,
       );
     }
 
@@ -134,7 +172,7 @@ export class ExchangesService {
       : undefined;
 
     const isValid = await this.validateApiKeys(
-      createDto.exchange,
+      exchange,
       createDto.apiKeyId,
       createDto.apiKeySecret,
       createDto.passphrase,
@@ -146,14 +184,14 @@ export class ExchangesService {
 
     const account = this.exchangeAccountRepository.create({
       userId,
-      exchange: createDto.exchange,
-      mode: createDto.mode,
+      exchange,
+      mode: createDto.mode ?? 'MAINNET',
       apiKeyId: encryptedApiKeyId,
       apiKeySecret: encryptedApiKeySecret,
       passphrase: encryptedPassphrase,
       defaultLeverage: createDto.defaultLeverage ?? 5,
       isActive: createDto.isActive ?? true,
-      metadata: createDto.metadata ?? {},
+      ...(createDto.metadata ? { metadata: createDto.metadata } : {}),
     });
 
     return await this.exchangeAccountRepository.save(account);
@@ -212,7 +250,7 @@ export class ExchangesService {
   async updateExchangeAccount(
     userId: string,
     accountId: string,
-    updateDto: UpdateExchangeAccountDto,
+    updateDto: UpdateExchangeAccountDto | UpsertPayload,
   ): Promise<ExchangeAccount> {
     const account = await this.exchangeAccountRepository.findOne({
       where: { id: accountId, userId },
@@ -220,6 +258,13 @@ export class ExchangesService {
 
     if (!account) {
       throw new BadRequestException('거래소 계정을 찾을 수 없습니다.');
+    }
+
+    if (
+      updateDto.exchange &&
+      this.normalizeExchangeSlug(updateDto.exchange) !== account.exchange
+    ) {
+      throw new BadRequestException('거래소 유형은 변경할 수 없습니다.');
     }
 
     const shouldValidateKeys =
@@ -267,9 +312,6 @@ export class ExchangesService {
       }
     }
 
-    if (updateDto.exchange) {
-      account.exchange = updateDto.exchange;
-    }
     if (updateDto.mode) {
       account.mode = updateDto.mode;
     }
@@ -280,7 +322,7 @@ export class ExchangesService {
       account.isActive = updateDto.isActive;
     }
     if (updateDto.metadata) {
-      account.metadata = { ...account.metadata, ...updateDto.metadata };
+      account.metadata = { ...(account.metadata ?? {}), ...updateDto.metadata };
     }
 
     return await this.exchangeAccountRepository.save(account);
@@ -307,29 +349,23 @@ export class ExchangesService {
    * 거래소별 API 검증
    */
   private async validateApiKeys(
-    exchange: ExchangeType | 'GATE',
+    exchange: SupportedExchangeInput,
     apiKey: string,
     secretKey: string,
     passphrase?: string,
   ): Promise<boolean> {
-    const normalizedExchange =
-      exchange === 'GATE' ? EXCHANGE_SYMBOL.GATEIO : exchange;
+    const normalizedExchange = this.normalizeExchangeSlug(exchange);
 
     try {
       switch (normalizedExchange) {
-        case EXCHANGE_SYMBOL.BINANCE:
         case 'BINANCE':
           return await this.validateBinanceKeys(apiKey, secretKey);
-        case EXCHANGE_SYMBOL.BYBIT:
         case 'BYBIT':
           return await this.validateBybitKeys(apiKey, secretKey);
-        case EXCHANGE_SYMBOL.OKX:
         case 'OKX':
           return await this.validateOkxKeys(apiKey, secretKey, passphrase);
-        case EXCHANGE_SYMBOL.GATEIO:
         case 'GATEIO':
           return await this.validateGateKeys(apiKey, secretKey);
-        case EXCHANGE_SYMBOL.BITGET:
         case 'BITGET':
           return await this.validateBitgetKeys(apiKey, secretKey, passphrase);
         default:
@@ -340,8 +376,7 @@ export class ExchangesService {
       return false;
     }
 
-    const unknownExchange: string = normalizedExchange;
-    throw new BadRequestException(`지원하지 않는 거래소: ${unknownExchange}`);
+    throw new BadRequestException(`지원하지 않는 거래소: ${String(exchange)}`);
   }
 
   /**
@@ -544,15 +579,14 @@ export class ExchangesService {
    */
   async executeOrder(
     userId: string,
-    exchangeType: ExchangeType | 'GATE',
-    orderData: any,
+    exchangeType: SupportedExchangeInput,
+    orderData: OrderRequest,
   ): Promise<any> {
-    const normalizedExchange =
-      exchangeType === 'GATE' ? EXCHANGE_SYMBOL.GATEIO : exchangeType;
+    const normalizedExchange = this.normalizeExchangeSlug(exchangeType);
     const account = await this.exchangeAccountRepository.findOne({
       where: {
         userId,
-        exchange: normalizedExchange as ExchangeSlug,
+        exchange: normalizedExchange,
         isActive: true,
       },
     });
@@ -572,13 +606,10 @@ export class ExchangesService {
       : undefined;
 
     switch (normalizedExchange) {
-      case EXCHANGE_SYMBOL.BINANCE:
       case 'BINANCE':
         return await this.executeBinanceOrder(apiKey, secretKey, orderData);
-      case EXCHANGE_SYMBOL.BYBIT:
       case 'BYBIT':
         return await this.executeBybitOrder(apiKey, secretKey, orderData);
-      case EXCHANGE_SYMBOL.OKX:
       case 'OKX':
         return await this.executeOkxOrder(
           apiKey,
@@ -586,10 +617,8 @@ export class ExchangesService {
           passphrase,
           orderData,
         );
-      case EXCHANGE_SYMBOL.GATEIO:
       case 'GATEIO':
         return await this.executeGateOrder(apiKey, secretKey, orderData);
-      case EXCHANGE_SYMBOL.BITGET:
       case 'BITGET':
         return await this.executeBitgetOrder(
           apiKey,
@@ -608,7 +637,7 @@ export class ExchangesService {
   private async executeBinanceOrder(
     apiKey: string,
     secretKey: string,
-    orderData: any,
+    orderData: OrderRequest,
   ): Promise<any> {
     const timestamp = Date.now();
     const params: Record<string, string | number | boolean | undefined> = {
@@ -653,7 +682,7 @@ export class ExchangesService {
   private async executeBybitOrder(
     apiKey: string,
     secretKey: string,
-    orderData: any,
+    orderData: OrderRequest,
   ): Promise<any> {
     const timestamp = Date.now();
     const params: Record<string, string | number | boolean | undefined> = {
@@ -709,7 +738,7 @@ export class ExchangesService {
     apiKey: string,
     secretKey: string,
     passphrase: string | undefined,
-    orderData: any,
+    orderData: OrderRequest,
   ): Promise<any> {
     const timestamp = new Date().toISOString();
     const method = 'POST';
@@ -765,7 +794,7 @@ export class ExchangesService {
   private async executeGateOrder(
     apiKey: string,
     secretKey: string,
-    orderData: any,
+    orderData: OrderRequest,
   ): Promise<any> {
     const timestamp = Math.floor(Date.now() / 1000);
     const method = 'POST';
@@ -773,7 +802,7 @@ export class ExchangesService {
 
     const body = JSON.stringify({
       currency_pair: orderData.symbol,
-      type: orderData.orderType || 'limit',
+      type: orderData.type.toLowerCase(),
       side: orderData.side,
       amount: orderData.quantity,
       ...orderData.additionalParams,
@@ -818,7 +847,7 @@ export class ExchangesService {
     apiKey: string,
     secretKey: string,
     passphrase: string | undefined,
-    orderData: any,
+    orderData: OrderRequest,
   ): Promise<any> {
     const timestamp = Date.now().toString();
     const method = 'POST';
@@ -867,63 +896,110 @@ export class ExchangesService {
     }
   }
 
-  /**
-   * 데이터 암호화
-   */
   private encryptData(data: string): string {
-    const algorithm = 'aes-256-cbc';
-    const encKey = this.configService.get<string>('ENCRYPTION_KEY');
-
-    if (!encKey) {
-      // 개발 환경용 기본 키 (프로덕션에서는 반드시 환경변수 사용)
-      const defaultKey = crypto.randomBytes(32).toString('hex');
-      this.logger.warn('ENCRYPTION_KEY not configured, using temporary key');
-      const key = Buffer.from(defaultKey, 'hex');
-      const iv = crypto.randomBytes(16);
-
-      const cipher = crypto.createCipheriv(algorithm, key, iv);
-      let encrypted = cipher.update(data, 'utf8', 'hex');
-      encrypted += cipher.final('hex');
-
-      return `${iv.toString('hex')}:${encrypted}`;
+    if (!data) {
+      return '';
     }
 
-    const key = Buffer.from(encKey, 'hex');
+    const key = this.getEncryptionKey();
     const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+    const encrypted = Buffer.concat([
+      cipher.update(data, 'utf8'),
+      cipher.final(),
+    ]);
 
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
-    let encrypted = cipher.update(data, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-
-    return `${iv.toString('hex')}:${encrypted}`;
+    return `${iv.toString('hex')}:${encrypted.toString('hex')}`;
   }
 
-  /**
-   * 데이터 복호화
-   */
-  private decryptData(encryptedData: string): string {
-    if (!encryptedData || !encryptedData.includes(':')) {
+  private decryptData(encryptedData?: string | null): string {
+    if (!encryptedData) {
       return '';
     }
 
-    const algorithm = 'aes-256-cbc';
-    const encKey = this.configService.get<string>('ENCRYPTION_KEY');
-
-    if (!encKey) {
-      this.logger.error('ENCRYPTION_KEY not configured for decryption');
-      return '';
+    if (!encryptedData.includes(':')) {
+      return encryptedData;
     }
 
-    const key = Buffer.from(encKey, 'hex');
+    const [ivHex, encrypted] = encryptedData.split(':', 2);
 
-    const [ivHex, encrypted] = encryptedData.split(':');
-    const iv = Buffer.from(ivHex, 'hex');
+    if (!ivHex || !encrypted) {
+      return encryptedData;
+    }
 
-    const decipher = crypto.createDecipheriv(algorithm, key, iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
+    try {
+      const key = this.getEncryptionKey();
+      const iv = Buffer.from(ivHex, 'hex');
+      const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+      const decrypted = Buffer.concat([
+        decipher.update(Buffer.from(encrypted, 'hex')),
+        decipher.final(),
+      ]);
 
-    return decrypted;
+      return decrypted.toString('utf8');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error ?? 'unknown');
+      this.logger.error(`데이터 복호화에 실패했습니다: ${message}`);
+      return '';
+    }
+  }
+
+  private normalizeExchangeSlug(
+    exchange: SupportedExchangeInput,
+  ): ExchangeSlug {
+    if (exchange === 'GATE') {
+      return 'GATEIO';
+    }
+
+    return exchange;
+  }
+
+  private getEncryptionKey(): Buffer {
+    if (this.encryptionKey) {
+      return this.encryptionKey;
+    }
+
+    const configured = this.configService.get<string>('ENCRYPTION_KEY')?.trim();
+
+    if (configured) {
+      if (/^[0-9a-fA-F]{64}$/.test(configured)) {
+        this.encryptionKey = Buffer.from(configured, 'hex');
+        return this.encryptionKey;
+      }
+
+      this.logger.warn(
+        'ENCRYPTION_KEY는 64자리 16진수여야 합니다. 제공된 값을 기반으로 파생 키를 생성합니다.',
+      );
+      this.encryptionKey = crypto
+        .createHash('sha256')
+        .update(configured)
+        .digest();
+      return this.encryptionKey;
+    }
+
+    const fallbackSource =
+      this.configService.get<string>('APP_SECRET') ?? 'coin-sangjang-dev-key';
+    this.logger.warn(
+      'ENCRYPTION_KEY가 설정되지 않았습니다. 개발 환경용 파생 키를 사용합니다.',
+    );
+    this.encryptionKey = crypto
+      .createHash('sha256')
+      .update(fallbackSource)
+      .digest();
+    return this.encryptionKey;
+  }
+
+  private createCredentialFingerprint(
+    exchange: ExchangeSlug,
+    apiKeyId: string,
+    mode: NetworkMode,
+  ): string {
+    return crypto
+      .createHash('sha256')
+      .update(`${exchange}:${mode}:${apiKeyId}`)
+      .digest('hex')
+      .slice(0, 32);
   }
 
   /**
@@ -931,14 +1007,13 @@ export class ExchangesService {
    */
   async checkAccountStatus(
     userId: string,
-    exchangeType: ExchangeType | 'GATE',
+    exchangeType: SupportedExchangeInput,
   ): Promise<boolean> {
-    const normalizedExchange =
-      exchangeType === 'GATE' ? EXCHANGE_SYMBOL.GATEIO : exchangeType;
+    const normalizedExchange = this.normalizeExchangeSlug(exchangeType);
     const account = await this.exchangeAccountRepository.findOne({
       where: {
         userId,
-        exchange: normalizedExchange as ExchangeSlug,
+        exchange: normalizedExchange,
         isActive: true,
       },
     });
@@ -947,9 +1022,9 @@ export class ExchangesService {
       return false;
     }
 
-    const apiKey = this.decryptData(account.apiKeyId || '') || account.apiKeyId;
+    const apiKey = this.decryptData(account.apiKeyId) || account.apiKeyId;
     const secretKey =
-      this.decryptData(account.apiKeySecret || '') || account.apiKeySecret;
+      this.decryptData(account.apiKeySecret) || account.apiKeySecret;
     const passphrase = account.passphrase
       ? this.decryptData(account.passphrase)
       : undefined;

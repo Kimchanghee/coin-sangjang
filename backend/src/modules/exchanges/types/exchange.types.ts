@@ -1,17 +1,17 @@
-import { EXCHANGES, type NetworkMode } from '../exchange.constants';
+import {
+  EXCHANGES,
+  type ExchangeSlug,
+  type NetworkMode,
+} from '../exchange.constants';
 
-export const EXCHANGE_SYMBOL = {
-  BINANCE: 'BINANCE',
-  BYBIT: 'BYBIT',
-  OKX: 'OKX',
-  GATEIO: 'GATEIO',
-  BITGET: 'BITGET',
-} as const;
+export type ExchangeType = ExchangeSlug;
 
-export type ExchangeType =
-  (typeof EXCHANGE_SYMBOL)[keyof typeof EXCHANGE_SYMBOL];
+export const SUPPORTED_EXCHANGES = Object.freeze([
+  ...EXCHANGES,
+] as const satisfies ReadonlyArray<ExchangeType>);
 
-export const SUPPORTED_EXCHANGES = EXCHANGES as readonly ExchangeType[];
+export type ExchangeOrderSide = 'BUY' | 'SELL';
+export type ExchangeOrderType = 'MARKET' | 'LIMIT';
 
 export interface ExchangeCredentials {
   apiKeyId: string;
@@ -22,11 +22,11 @@ export interface ExchangeCredentials {
 
 export interface OrderRequest {
   symbol: string;
-  side: 'BUY' | 'SELL';
-  type: 'MARKET' | 'LIMIT';
+  side: ExchangeOrderSide;
+  type: ExchangeOrderType;
   quantity: string;
   price?: string;
-  additionalParams?: Record<string, unknown>;
+  additionalParams?: Record<string, string | number | boolean | undefined>;
 }
 
 export interface OrderResponse {
@@ -50,7 +50,7 @@ export interface ExchangeAvailabilityDiagnostic {
   ready: boolean;
   available: boolean;
   message?: string;
-  checkedAt?: string;
+  checkedAt: string;
   error?: string;
 }
 
