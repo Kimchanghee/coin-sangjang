@@ -571,13 +571,13 @@ export class ExchangesService {
         .update(`${timestamp}GET${path}${queryString}`)
         .digest('base64');
       const url = `${baseUrl}${path}${queryString ? `?${queryString}` : ''}`;
-      const headers: Record<string, string> = {
+      const headers = {
         'ACCESS-KEY': dto.apiKeyId,
         'ACCESS-SIGN': signature,
         'ACCESS-PASSPHRASE': passphrase,
         'ACCESS-TIMESTAMP': timestamp,
         'Content-Type': 'application/json',
-      };
+      } satisfies Record<string, string>;
 
       const response = await fetch(url, { headers });
       if (!response.ok) {
