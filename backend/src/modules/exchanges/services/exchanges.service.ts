@@ -9,15 +9,12 @@ import { ExchangeAccount } from '../entities/exchange-account.entity';
 import { EXCHANGE_ADAPTERS } from '../adapters/exchange-adapter.token';
 import type { ExchangeAdapter } from '../adapters/exchange-adapter.interface';
 import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
-import { VerifyExchangeCredentialsDto } from '../dto/verify-exchange-credentials.dto';
+import {
+  VerifyExchangeCredentialsDto,
+  type ExchangeBalanceBreakdownDto,
+  type VerifyExchangeCredentialsResponseDto,
+} from '../dto/verify-exchange-credentials.dto';
 import type { ExchangeSlug } from '../exchange.constants';
-
-export interface ExchangeBalanceBreakdown {
-  type: 'SPOT' | 'FUTURES' | 'MARGIN';
-  asset: string;
-  total: number;
-  available: number;
-}
 
 export interface ExchangeAvailabilityDiagnostic {
   exchange: ExchangeSlug;
@@ -99,13 +96,15 @@ export class ExchangesService {
     };
   }
 
-  async verifyCredentials(dto: VerifyExchangeCredentialsDto) {
+  async verifyCredentials(
+    dto: VerifyExchangeCredentialsDto,
+  ): Promise<VerifyExchangeCredentialsResponseDto> {
     const fingerprint = createHash('sha256')
       .update(`${dto.exchange}:${dto.mode}:${dto.apiKeyId}`)
       .digest('hex')
       .slice(0, 16);
 
-    let balances: ExchangeBalanceBreakdown[] = [];
+    let balances: ExchangeBalanceBreakdownDto[] = [];
 
     switch (dto.exchange) {
       case 'BINANCE':
@@ -137,13 +136,13 @@ export class ExchangesService {
       fingerprint,
       lastCheckedAt: new Date().toISOString(),
       balances,
-    };
+    } satisfies VerifyExchangeCredentialsResponseDto;
   }
 
   private async verifyBinance(
     dto: VerifyExchangeCredentialsDto,
-  ): Promise<ExchangeBalanceBreakdown[]> {
-    const results: ExchangeBalanceBreakdown[] = [];
+  ): Promise<ExchangeBalanceBreakdownDto[]> {
+    const results: ExchangeBalanceBreakdownDto[] = [];
     const futuresEndpoint =
       dto.mode === 'TESTNET'
         ? (this.config.get<string>('BINANCE_FUTURES_TESTNET_REST') ??
@@ -269,8 +268,8 @@ export class ExchangesService {
 
   private async verifyBybit(
     dto: VerifyExchangeCredentialsDto,
-  ): Promise<ExchangeBalanceBreakdown[]> {
-    const results: ExchangeBalanceBreakdown[] = [];
+  ): Promise<ExchangeBalanceBreakdownDto[]> {
+    const results: ExchangeBalanceBreakdownDto[] = [];
     const endpoint =
       dto.mode === 'TESTNET'
         ? (this.config.get<string>('BYBIT_TESTNET_REST') ??
@@ -391,7 +390,7 @@ export class ExchangesService {
 
   private async verifyOkx(
     dto: VerifyExchangeCredentialsDto,
-  ): Promise<ExchangeBalanceBreakdown[]> {
+  ): Promise<ExchangeBalanceBreakdownDto[]> {
     if (!dto.passphrase) {
       this.logger.warn(
         { exchange: 'OKX' },
@@ -430,7 +429,7 @@ export class ExchangesService {
       return [];
     }
 
-    const balances: ExchangeBalanceBreakdown[] = [];
+    const balances: ExchangeBalanceBreakdownDto[] = [];
     for (const account of data) {
       if (!Array.isArray(account.details)) {
         continue;
@@ -454,7 +453,7 @@ export class ExchangesService {
 
   private async verifyGateio(
     dto: VerifyExchangeCredentialsDto,
-  ): Promise<ExchangeBalanceBreakdown[]> {
+  ): Promise<ExchangeBalanceBreakdownDto[]> {
     const endpoint =
       dto.mode === 'TESTNET'
         ? (this.config.get<string>('GATEIO_TESTNET_REST') ??
@@ -507,7 +506,7 @@ export class ExchangesService {
 
   private async verifyBitget(
     dto: VerifyExchangeCredentialsDto,
-  ): Promise<ExchangeBalanceBreakdown[]> {
+  ): Promise<ExchangeBalanceBreakdownDto[]> {
     if (!dto.passphrase) {
       this.logger.warn(
         { exchange: 'BITGET' },

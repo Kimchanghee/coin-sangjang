@@ -1,7 +1,10 @@
 import { Controller, Get, Param, Post, Body, Query } from '@nestjs/common';
 
 import { ExchangesService } from '../services/exchanges.service';
-import { VerifyExchangeCredentialsDto } from '../dto/verify-exchange-credentials.dto';
+import {
+  VerifyExchangeCredentialsDto,
+  type VerifyExchangeCredentialsResponseDto,
+} from '../dto/verify-exchange-credentials.dto';
 import type { NetworkMode } from '../exchange.constants';
 
 @Controller('public/exchanges')
@@ -9,7 +12,9 @@ export class ExchangeDiagnosticsController {
   constructor(private readonly exchangesService: ExchangesService) {}
 
   @Post('verify')
-  verify(@Body() body: VerifyExchangeCredentialsDto) {
+  verify(
+    @Body() body: VerifyExchangeCredentialsDto,
+  ): Promise<VerifyExchangeCredentialsResponseDto> {
     return this.exchangesService.verifyCredentials(body);
   }
 

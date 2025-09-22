@@ -23,3 +23,19 @@ export class VerifyExchangeCredentialsDto {
   @IsString()
   passphrase?: string;
 }
+
+export interface ExchangeBalanceBreakdownDto {
+  type: 'SPOT' | 'FUTURES' | 'MARGIN';
+  asset: string;
+  total: number;
+  available: number;
+}
+
+export interface VerifyExchangeCredentialsResponseDto {
+  exchange: ExchangeSlug;
+  mode: NetworkMode;
+  connected: boolean;
+  fingerprint: string;
+  lastCheckedAt: string;
+  balances: ExchangeBalanceBreakdownDto[];
+}
