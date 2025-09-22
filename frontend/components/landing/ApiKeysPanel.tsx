@@ -185,6 +185,7 @@ export function ApiKeysPanel({ copy }: ApiKeysPanelProps) {
 
       const data = (await response.json()) as ExchangeVerification & {
         fingerprint?: string;
+        error?: string;
       };
 
       setForms((prev) => ({
@@ -192,6 +193,7 @@ export function ApiKeysPanel({ copy }: ApiKeysPanelProps) {
         [exchange]: {
           ...prev[exchange],
           loading: false,
+          error: data.connected ? undefined : data.error ?? apiCopy.connectionError,
           verification: {
             connected: data.connected,
             lastCheckedAt: data.lastCheckedAt,
