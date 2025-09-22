@@ -7,6 +7,7 @@ interface MarketSnapshot {
   exchange: string;
   available: boolean;
   checkedAt?: string;
+  error?: string;
 }
 
 interface ListingEvent {
@@ -30,8 +31,16 @@ const FALLBACK_EVENTS: ListingEvent[] = [
     baseSymbol: "BTC",
     announcedAt: new Date().toISOString(),
     marketsSnapshot: [
-      { exchange: "BINANCE", available: true },
-      { exchange: "BYBIT", available: true },
+      {
+        exchange: "BINANCE",
+        available: true,
+        checkedAt: new Date().toISOString(),
+      },
+      {
+        exchange: "BYBIT",
+        available: true,
+        checkedAt: new Date().toISOString(),
+      },
     ],
   },
   {
@@ -40,8 +49,17 @@ const FALLBACK_EVENTS: ListingEvent[] = [
     baseSymbol: "APT",
     announcedAt: new Date().toISOString(),
     marketsSnapshot: [
-      { exchange: "BINANCE", available: true },
-      { exchange: "OKX", available: false },
+      {
+        exchange: "BINANCE",
+        available: true,
+        checkedAt: new Date().toISOString(),
+      },
+      {
+        exchange: "OKX",
+        available: false,
+        checkedAt: new Date().toISOString(),
+        error: "Awaiting new listing window",
+      },
     ],
   },
 ];
@@ -168,40 +186,56 @@ export function RealtimeFeedPanel({ copy, locale }: RealtimeFeedPanelProps) {
                     {availabilityCopy.coverageTitle}
                   </p>
                   {event.marketsSnapshot && event.marketsSnapshot.length > 0 ? (
-                    <ul className="mt-2 flex flex-wrap gap-2">
-                      {event.marketsSnapshot.map((market) => (
-                        <li
-                          key={`${event.id ?? event.symbol}-${market.exchange}`}
-                          className={`flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold transition ${
-                            market.available
-                              ? "bg-emerald-500/20 text-emerald-300"
-                              : "bg-rose-500/10 text-rose-200"
-                          }`}
-                        >
-                          <span>{market.exchange}</span>
-                          <span>
-                            {market.available
-                              ? availabilityCopy.availableLabel
-                              : availabilityCopy.unavailableLabel}
-                          </span>
-                        </li>
-                      ))}
+                    <ul className="mt-2 space-y-2">
+                      {event.marketsSnapshot.map((market) => {
+                        const statusLabel = market.available
+                          ? availabilityCopy.availableLabel
+                          : availabilityCopy.unavailableLabel;
+                        const containerClasses = market.available
+                          ? "border-emerald-500/40 bg-emerald-500/10"
+                          : "border-rose-500/40 bg-rose-500/10";
+                        const statusClasses = market.available
+                          ? "text-emerald-300"
+                          : "text-rose-300";
+                        return (
+                          <li
+                            key={`${event.id ?? event.symbol}-${market.exchange}`}
+                            className={`rounded-lg border px-3 py-2 ${containerClasses}`}
+                          >
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-200">
+                                  {market.exchange}
+                                </p>
+                                {!market.available && market.error && (
+                                  <p className="text-[11px] text-rose-300">
+                                    {market.error}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="text-left sm:text-right">
+                                <p className={`text-xs font-semibold ${statusClasses}`}>
+                                  {statusLabel}
+                                </p>
+                                {market.checkedAt && (
+                                  <p className="text-[11px] text-slate-400">
+                                    {availabilityCopy.updatedLabel}:{" "}
+                                    {new Date(market.checkedAt).toLocaleTimeString(locale, {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                      second: "2-digit",
+                                    })}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   ) : (
                     <p className="mt-2 text-xs text-slate-400">
                       {availabilityCopy.unknownLabel}
-                    </p>
-                  )}
-                  {event.marketsSnapshot && event.marketsSnapshot.length > 0 && (
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      {availabilityCopy.updatedLabel}:{" "}
-                      {new Date(
-                        event.marketsSnapshot[0]?.checkedAt ?? event.announcedAt,
-                      ).toLocaleTimeString(locale, {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      })}
                     </p>
                   )}
                 </div>
