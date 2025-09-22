@@ -9,8 +9,8 @@ export interface ExchangeAdapter {
   ensureLeverage(params: {
     symbol: string;
     leverage: number;
-    apiKey: string;
-    apiSecret: string;
+    apiKeyId: string;
+    apiKeySecret: string;
     passphrase?: string;
     useTestnet: boolean;
   }): Promise<void>;
@@ -19,8 +19,8 @@ export interface ExchangeAdapter {
     side: 'BUY' | 'SELL';
     quantity: number;
     leverage: number;
-    apiKey: string;
-    apiSecret: string;
+    apiKeyId: string;
+    apiKeySecret: string;
     passphrase?: string;
     useTestnet: boolean;
     takeProfitPercent?: number;

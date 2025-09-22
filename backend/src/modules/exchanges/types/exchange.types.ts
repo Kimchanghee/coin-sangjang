@@ -1,14 +1,23 @@
-import {
-  EXCHANGES,
-  type ExchangeSlug,
-  type NetworkMode,
-} from '../exchange.constants';
+export enum ExchangeType {
+  BINANCE = 'BINANCE',
+  BYBIT = 'BYBIT',
+  OKX = 'OKX',
+  GATEIO = 'GATEIO',
+  BITGET = 'BITGET',
+}
 
-export type ExchangeType = ExchangeSlug;
+export enum NetworkMode {
+  MAINNET = 'MAINNET',
+  TESTNET = 'TESTNET',
+}
 
-export const SUPPORTED_EXCHANGES = Object.freeze([
-  ...EXCHANGES,
-] as const satisfies ReadonlyArray<ExchangeType>);
+export const SUPPORTED_EXCHANGES = Object.freeze(
+  Object.values(ExchangeType),
+) as ReadonlyArray<ExchangeType>;
+
+export const SUPPORTED_NETWORK_MODES = Object.freeze(
+  Object.values(NetworkMode),
+) as ReadonlyArray<NetworkMode>;
 
 export type ExchangeOrderSide = 'BUY' | 'SELL';
 export type ExchangeOrderType = 'MARKET' | 'LIMIT';

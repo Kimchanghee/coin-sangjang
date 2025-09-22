@@ -10,6 +10,8 @@ import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
 import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
 import {
   ExchangeAvailabilityDiagnostic,
+  ExchangeType,
+  NetworkMode,
   OrderRequest,
   PrepareExecutionOptions,
   PrepareExecutionResult,
@@ -19,9 +21,8 @@ import {
   VerifyExchangeCredentialsDto,
   type VerifyExchangeCredentialsResponseDto,
 } from '../dto/verify-exchange-credentials.dto';
-import type { ExchangeSlug, NetworkMode } from '../exchange.constants';
 
-type SupportedExchangeInput = ExchangeSlug | 'GATE';
+type SupportedExchangeInput = ExchangeType | 'GATE';
 type UpsertPayload = UpsertExchangeAccountDto & {
   metadata?: ExchangeAccountMetadata;
 };
@@ -185,7 +186,7 @@ export class ExchangesService {
     const account = this.exchangeAccountRepository.create({
       userId,
       exchange,
-      mode: createDto.mode ?? 'MAINNET',
+      mode: createDto.mode ?? NetworkMode.MAINNET,
       apiKeyId: encryptedApiKeyId,
       apiKeySecret: encryptedApiKeySecret,
       passphrase: encryptedPassphrase,
@@ -350,24 +351,28 @@ export class ExchangesService {
    */
   private async validateApiKeys(
     exchange: SupportedExchangeInput,
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
     passphrase?: string,
   ): Promise<boolean> {
     const normalizedExchange = this.normalizeExchangeSlug(exchange);
 
     try {
       switch (normalizedExchange) {
-        case 'BINANCE':
-          return await this.validateBinanceKeys(apiKey, secretKey);
-        case 'BYBIT':
-          return await this.validateBybitKeys(apiKey, secretKey);
-        case 'OKX':
-          return await this.validateOkxKeys(apiKey, secretKey, passphrase);
-        case 'GATEIO':
-          return await this.validateGateKeys(apiKey, secretKey);
-        case 'BITGET':
-          return await this.validateBitgetKeys(apiKey, secretKey, passphrase);
+        case ExchangeType.BINANCE:
+          return await this.validateBinanceKeys(apiKeyId, apiKeySecret);
+        case ExchangeType.BYBIT:
+          return await this.validateBybitKeys(apiKeyId, apiKeySecret);
+        case ExchangeType.OKX:
+          return await this.validateOkxKeys(apiKeyId, apiKeySecret, passphrase);
+        case ExchangeType.GATEIO:
+          return await this.validateGateKeys(apiKeyId, apiKeySecret);
+        case ExchangeType.BITGET:
+          return await this.validateBitgetKeys(
+            apiKeyId,
+            apiKeySecret,
+            passphrase,
+          );
         default:
           break;
       }
@@ -383,13 +388,13 @@ export class ExchangesService {
    * Binance API 검증
    */
   private async validateBinanceKeys(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
   ): Promise<boolean> {
     const timestamp = Date.now();
     const queryString = `timestamp=${timestamp}`;
     const signature = crypto
-      .createHmac('sha256', secretKey)
+      .createHmac('sha256', apiKeySecret)
       .update(queryString)
       .digest('hex');
 
@@ -399,7 +404,7 @@ export class ExchangesService {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'X-MBX-APIKEY': apiKey,
+          'X-MBX-APIKEY': apiKeyId,
         },
       });
 
@@ -414,15 +419,15 @@ export class ExchangesService {
    * Bybit API 검증
    */
   private async validateBybitKeys(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
   ): Promise<boolean> {
     const timestamp = Date.now();
     const recvWindow = 5000;
-    const queryString = `api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
+    const queryString = `api_key=${apiKeyId}&recv_window=${recvWindow}&timestamp=${timestamp}`;
 
     const signature = crypto
-      .createHmac('sha256', secretKey)
+      .createHmac('sha256', apiKeySecret)
       .update(queryString)
       .digest('hex');
 
@@ -445,8 +450,8 @@ export class ExchangesService {
    * OKX API 검증
    */
   private async validateOkxKeys(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
     passphrase?: string,
   ): Promise<boolean> {
     const timestamp = new Date().toISOString();
@@ -455,7 +460,7 @@ export class ExchangesService {
 
     const preSign = `${timestamp}${method}${requestPath}`;
     const signature = crypto
-      .createHmac('sha256', secretKey)
+      .createHmac('sha256', apiKeySecret)
       .update(preSign)
       .digest('base64');
 
@@ -463,7 +468,7 @@ export class ExchangesService {
 
     // 헤더 객체를 미리 구성
     const headers: Record<string, string> = {
-      'OK-ACCESS-KEY': apiKey,
+      'OK-ACCESS-KEY': apiKeyId,
       'OK-ACCESS-SIGN': signature,
       'OK-ACCESS-TIMESTAMP': timestamp,
       'Content-Type': 'application/json',
@@ -492,8 +497,8 @@ export class ExchangesService {
    * Gate.io API 검증
    */
   private async validateGateKeys(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
   ): Promise<boolean> {
     const timestamp = Math.floor(Date.now() / 1000);
     const method = 'GET';
@@ -503,7 +508,7 @@ export class ExchangesService {
 
     const preSign = `${method}\n${requestPath}\n${queryString}\n${hashedPayload}\n${timestamp}`;
     const signature = crypto
-      .createHmac('sha512', secretKey)
+      .createHmac('sha512', apiKeySecret)
       .update(preSign)
       .digest('hex');
 
@@ -513,7 +518,7 @@ export class ExchangesService {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          KEY: apiKey,
+          KEY: apiKeyId,
           SIGN: signature,
           Timestamp: timestamp.toString(),
           'Content-Type': 'application/json',
@@ -531,8 +536,8 @@ export class ExchangesService {
    * Bitget API 검증
    */
   private async validateBitgetKeys(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
     passphrase?: string,
   ): Promise<boolean> {
     const timestamp = Date.now().toString();
@@ -541,7 +546,7 @@ export class ExchangesService {
 
     const preSign = `${timestamp}${method}${requestPath}`;
     const signature = crypto
-      .createHmac('sha256', secretKey)
+      .createHmac('sha256', apiKeySecret)
       .update(preSign)
       .digest('base64');
 
@@ -549,7 +554,7 @@ export class ExchangesService {
 
     // 헤더 객체를 미리 구성
     const headers: Record<string, string> = {
-      'ACCESS-KEY': apiKey,
+      'ACCESS-KEY': apiKeyId,
       'ACCESS-SIGN': signature,
       'ACCESS-TIMESTAMP': timestamp,
       'Content-Type': 'application/json',
@@ -598,31 +603,35 @@ export class ExchangesService {
       );
     }
 
-    const apiKey = this.decryptData(account.apiKeyId) || account.apiKeyId;
-    const secretKey =
+    const apiKeyId = this.decryptData(account.apiKeyId) || account.apiKeyId;
+    const apiKeySecret =
       this.decryptData(account.apiKeySecret) || account.apiKeySecret;
     const passphrase = account.passphrase
       ? this.decryptData(account.passphrase)
       : undefined;
 
     switch (normalizedExchange) {
-      case 'BINANCE':
-        return await this.executeBinanceOrder(apiKey, secretKey, orderData);
-      case 'BYBIT':
-        return await this.executeBybitOrder(apiKey, secretKey, orderData);
-      case 'OKX':
+      case ExchangeType.BINANCE:
+        return await this.executeBinanceOrder(
+          apiKeyId,
+          apiKeySecret,
+          orderData,
+        );
+      case ExchangeType.BYBIT:
+        return await this.executeBybitOrder(apiKeyId, apiKeySecret, orderData);
+      case ExchangeType.OKX:
         return await this.executeOkxOrder(
-          apiKey,
-          secretKey,
+          apiKeyId,
+          apiKeySecret,
           passphrase,
           orderData,
         );
-      case 'GATEIO':
-        return await this.executeGateOrder(apiKey, secretKey, orderData);
-      case 'BITGET':
+      case ExchangeType.GATEIO:
+        return await this.executeGateOrder(apiKeyId, apiKeySecret, orderData);
+      case ExchangeType.BITGET:
         return await this.executeBitgetOrder(
-          apiKey,
-          secretKey,
+          apiKeyId,
+          apiKeySecret,
           passphrase,
           orderData,
         );
@@ -635,8 +644,8 @@ export class ExchangesService {
    * Binance 주문 실행
    */
   private async executeBinanceOrder(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
     orderData: OrderRequest,
   ): Promise<any> {
     const timestamp = Date.now();
@@ -655,7 +664,7 @@ export class ExchangesService {
       .join('&');
 
     const signature = crypto
-      .createHmac('sha256', secretKey)
+      .createHmac('sha256', apiKeySecret)
       .update(queryString)
       .digest('hex');
 
@@ -665,7 +674,7 @@ export class ExchangesService {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'X-MBX-APIKEY': apiKey,
+          'X-MBX-APIKEY': apiKeyId,
         },
       });
 
@@ -680,8 +689,8 @@ export class ExchangesService {
    * Bybit 주문 실행
    */
   private async executeBybitOrder(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
     orderData: OrderRequest,
   ): Promise<any> {
     const timestamp = Date.now();
@@ -692,7 +701,7 @@ export class ExchangesService {
       orderType: orderData.type,
       qty: orderData.quantity,
       timestamp,
-      api_key: apiKey,
+      api_key: apiKeyId,
       ...orderData.additionalParams,
     };
 
@@ -709,7 +718,7 @@ export class ExchangesService {
       .join('&');
 
     const signature = crypto
-      .createHmac('sha256', secretKey)
+      .createHmac('sha256', apiKeySecret)
       .update(queryString)
       .digest('hex');
 
@@ -735,8 +744,8 @@ export class ExchangesService {
    * OKX 주문 실행
    */
   private async executeOkxOrder(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
     passphrase: string | undefined,
     orderData: OrderRequest,
   ): Promise<any> {
@@ -755,7 +764,7 @@ export class ExchangesService {
 
     const preSign = `${timestamp}${method}${requestPath}${body}`;
     const signature = crypto
-      .createHmac('sha256', secretKey)
+      .createHmac('sha256', apiKeySecret)
       .update(preSign)
       .digest('base64');
 
@@ -763,7 +772,7 @@ export class ExchangesService {
 
     // 헤더 객체를 미리 구성
     const headers: Record<string, string> = {
-      'OK-ACCESS-KEY': apiKey,
+      'OK-ACCESS-KEY': apiKeyId,
       'OK-ACCESS-SIGN': signature,
       'OK-ACCESS-TIMESTAMP': timestamp,
       'Content-Type': 'application/json',
@@ -792,8 +801,8 @@ export class ExchangesService {
    * Gate.io 주문 실행
    */
   private async executeGateOrder(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
     orderData: OrderRequest,
   ): Promise<any> {
     const timestamp = Math.floor(Date.now() / 1000);
@@ -815,7 +824,7 @@ export class ExchangesService {
 
     const preSign = `${method}\n${requestPath}\n\n${hashedPayload}\n${timestamp}`;
     const signature = crypto
-      .createHmac('sha512', secretKey)
+      .createHmac('sha512', apiKeySecret)
       .update(preSign)
       .digest('hex');
 
@@ -825,7 +834,7 @@ export class ExchangesService {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          KEY: apiKey,
+          KEY: apiKeyId,
           SIGN: signature,
           Timestamp: timestamp.toString(),
           'Content-Type': 'application/json',
@@ -844,8 +853,8 @@ export class ExchangesService {
    * Bitget 주문 실행
    */
   private async executeBitgetOrder(
-    apiKey: string,
-    secretKey: string,
+    apiKeyId: string,
+    apiKeySecret: string,
     passphrase: string | undefined,
     orderData: OrderRequest,
   ): Promise<any> {
@@ -863,7 +872,7 @@ export class ExchangesService {
 
     const preSign = `${timestamp}${method}${requestPath}${body}`;
     const signature = crypto
-      .createHmac('sha256', secretKey)
+      .createHmac('sha256', apiKeySecret)
       .update(preSign)
       .digest('base64');
 
@@ -871,7 +880,7 @@ export class ExchangesService {
 
     // 헤더 객체를 미리 구성
     const headers: Record<string, string> = {
-      'ACCESS-KEY': apiKey,
+      'ACCESS-KEY': apiKeyId,
       'ACCESS-SIGN': signature,
       'ACCESS-TIMESTAMP': timestamp,
       'Content-Type': 'application/json',
@@ -947,9 +956,9 @@ export class ExchangesService {
 
   private normalizeExchangeSlug(
     exchange: SupportedExchangeInput,
-  ): ExchangeSlug {
+  ): ExchangeType {
     if (exchange === 'GATE') {
-      return 'GATEIO';
+      return ExchangeType.GATEIO;
     }
 
     return exchange;
@@ -991,7 +1000,7 @@ export class ExchangesService {
   }
 
   private createCredentialFingerprint(
-    exchange: ExchangeSlug,
+    exchange: ExchangeType,
     apiKeyId: string,
     mode: NetworkMode,
   ): string {
@@ -1022,8 +1031,8 @@ export class ExchangesService {
       return false;
     }
 
-    const apiKey = this.decryptData(account.apiKeyId) || account.apiKeyId;
-    const secretKey =
+    const apiKeyId = this.decryptData(account.apiKeyId) || account.apiKeyId;
+    const apiKeySecret =
       this.decryptData(account.apiKeySecret) || account.apiKeySecret;
     const passphrase = account.passphrase
       ? this.decryptData(account.passphrase)
@@ -1031,8 +1040,8 @@ export class ExchangesService {
 
     return await this.validateApiKeys(
       normalizedExchange,
-      apiKey,
-      secretKey,
+      apiKeyId,
+      apiKeySecret,
       passphrase,
     );
   }

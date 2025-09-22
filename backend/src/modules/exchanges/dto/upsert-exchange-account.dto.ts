@@ -1,20 +1,21 @@
 import {
   IsBoolean,
-  IsIn,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
   Max,
   Min,
 } from 'class-validator';
+
 import {
-  EXCHANGES,
+  ExchangeType,
+  NetworkMode,
   type ExchangeSlug,
-  type NetworkMode,
 } from '../exchange.constants';
 
 export class UpsertExchangeAccountDto {
-  @IsIn(EXCHANGES)
+  @IsEnum(ExchangeType)
   exchange!: ExchangeSlug;
 
   @IsString()
@@ -27,8 +28,9 @@ export class UpsertExchangeAccountDto {
   @IsString()
   passphrase?: string;
 
-  @IsIn(['MAINNET', 'TESTNET'])
-  mode!: NetworkMode;
+  @IsOptional()
+  @IsEnum(NetworkMode)
+  mode?: NetworkMode;
 
   @IsOptional()
   @IsInt()

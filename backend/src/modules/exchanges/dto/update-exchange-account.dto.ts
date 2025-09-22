@@ -1,6 +1,6 @@
 import {
   IsBoolean,
-  IsIn,
+  IsEnum,
   IsInt,
   IsObject,
   IsOptional,
@@ -10,15 +10,15 @@ import {
 } from 'class-validator';
 
 import {
-  EXCHANGES,
+  ExchangeType,
+  NetworkMode,
   type ExchangeSlug,
-  type NetworkMode,
 } from '../exchange.constants';
 import type { ExchangeAccountMetadata } from './create-exchange-account.dto';
 
 export class UpdateExchangeAccountDto {
   @IsOptional()
-  @IsIn(EXCHANGES)
+  @IsEnum(ExchangeType)
   exchange?: ExchangeSlug;
 
   @IsOptional()
@@ -34,7 +34,7 @@ export class UpdateExchangeAccountDto {
   passphrase?: string;
 
   @IsOptional()
-  @IsIn(['MAINNET', 'TESTNET'])
+  @IsEnum(NetworkMode)
   mode?: NetworkMode;
 
   @IsOptional()
