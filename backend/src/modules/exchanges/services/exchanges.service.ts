@@ -5,10 +5,11 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 import { ExchangeAccount } from '../entities/exchange-account.entity';
-import type { ExchangeAccountMetadata } from '../dto/create-exchange-account.dto';
 import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
 import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
 import {
+  DEFAULT_NETWORK_MODE,
+  type ExchangeAccountMetadata,
   ExchangeAvailabilityDiagnostic,
   ExchangeType,
   NetworkMode,
@@ -16,13 +17,15 @@ import {
   PrepareExecutionOptions,
   PrepareExecutionResult,
   SUPPORTED_EXCHANGES,
+  isExchangeAccountMetadata,
+  normalizeExchangeType,
 } from '../types/exchange.types';
 import {
   VerifyExchangeCredentialsDto,
   type VerifyExchangeCredentialsResponseDto,
 } from '../dto/verify-exchange-credentials.dto';
 
-type SupportedExchangeInput = ExchangeType;
+type SupportedExchangeInput = ExchangeType | string;
 type UpsertPayload = UpsertExchangeAccountDto & {
   metadata?: ExchangeAccountMetadata;
 };
@@ -92,7 +95,7 @@ export class ExchangesService {
       'API 비밀 키',
     );
     const passphrase = this.coerceCredentialInput(dto.passphrase);
-    const mode = dto.mode ?? NetworkMode.MAINNET;
+    const mode = dto.mode ?? DEFAULT_NETWORK_MODE;
     const response: VerifyExchangeCredentialsResponseDto = {
       exchange,
       mode,
@@ -153,7 +156,7 @@ export class ExchangesService {
         checkedAt,
       }));
 
-    const ready = diagnostics.some((d) => d.ready);
+    const ready = diagnostics.some((d) => d.ready && d.available);
 
     return Promise.resolve({
       symbol,
@@ -214,7 +217,7 @@ export class ExchangesService {
     const account = this.exchangeAccountRepository.create({
       userId,
       exchange,
-      mode: createDto.mode ?? NetworkMode.MAINNET,
+      mode: createDto.mode ?? DEFAULT_NETWORK_MODE,
       apiKeyId: encryptedApiKeyId,
       apiKeySecret: encryptedApiKeySecret,
       passphrase: encryptedPassphrase,
@@ -314,8 +317,9 @@ export class ExchangesService {
     const nextPassphrase = hasPassphraseUpdate
       ? this.coerceCredentialInput(updateDto.passphrase)
       : undefined;
-    const shouldValidateKeys =
-      hasApiKeyIdUpdate || hasApiKeySecretUpdate || hasPassphraseUpdate;
+    const shouldValidateKeys = UpdateExchangeAccountDto.hasCredentialChanges(
+      updateDto as UpdateExchangeAccountDto,
+    );
 
     if (shouldValidateKeys) {
       const currentApiKeyId = this.requireCredential(
@@ -1025,7 +1029,7 @@ export class ExchangesService {
   private sanitizeMetadata(
     metadata?: ExchangeAccountMetadata,
   ): ExchangeAccountMetadata | undefined {
-    if (!this.isExchangeAccountMetadata(metadata)) {
+    if (!isExchangeAccountMetadata(metadata)) {
       return undefined;
     }
 
@@ -1045,13 +1049,15 @@ export class ExchangesService {
   private normalizeExchangeSlug(
     exchange: SupportedExchangeInput,
   ): ExchangeType {
-    return exchange;
-  }
+    const normalized = normalizeExchangeType(exchange);
 
-  private isExchangeAccountMetadata(
-    value: unknown,
-  ): value is ExchangeAccountMetadata {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+    if (!normalized) {
+      throw new BadRequestException(
+        `지원하지 않는 거래소: ${String(exchange)}`,
+      );
+    }
+
+    return normalized;
   }
 
   private getEncryptionKey(): Buffer {
