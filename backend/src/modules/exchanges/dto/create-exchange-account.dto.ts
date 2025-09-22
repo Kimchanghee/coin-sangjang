@@ -1,38 +1,21 @@
+import { Transform, type TransformFnParams } from 'class-transformer';
+import { IsObject, IsOptional } from 'class-validator';
+import { UpsertExchangeAccountDto } from './upsert-exchange-account.dto';
 import {
-  IsEnum,
-  IsString,
-  IsOptional,
-  IsBoolean,
-  IsObject,
-} from 'class-validator';
+  type ExchangeAccountMetadata,
+  isExchangeAccountMetadata,
+} from '../types/exchange.types';
 
-export enum ExchangeType {
-  BINANCE = 'BINANCE',
-  BYBIT = 'BYBIT',
-  OKX = 'OKX',
-  GATE = 'GATE',
-  BITGET = 'BITGET',
-}
+const normalizeMetadata = ({
+  value,
+}: TransformFnParams): ExchangeAccountMetadata | undefined =>
+  isExchangeAccountMetadata(value) ? value : undefined;
 
-export class CreateExchangeAccountDto {
-  @IsEnum(ExchangeType)
-  exchange: ExchangeType;
-
-  @IsString()
-  apiKey: string;
-
-  @IsString()
-  secretKey: string;
-
-  @IsOptional()
-  @IsString()
-  passphrase?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isTestnet?: boolean;
-
+export class CreateExchangeAccountDto extends UpsertExchangeAccountDto {
   @IsOptional()
   @IsObject()
-  metadata?: Record<string, any>;
+  @Transform(normalizeMetadata, { toClassOnly: true })
+  metadata?: ExchangeAccountMetadata;
 }
+
+export type { ExchangeAccountMetadata } from '../types/exchange.types';

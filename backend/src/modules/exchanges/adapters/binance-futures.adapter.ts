@@ -3,10 +3,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { ExchangeAdapter } from './exchange-adapter.interface';
+import { ExchangeType } from '../types/exchange.types';
 
 @Injectable()
 export class BinanceFuturesAdapter implements ExchangeAdapter {
-  readonly exchange = 'BINANCE' as const;
+  readonly exchange = ExchangeType.BINANCE;
   private readonly logger = new Logger(BinanceFuturesAdapter.name);
 
   constructor(
@@ -61,8 +62,8 @@ export class BinanceFuturesAdapter implements ExchangeAdapter {
   async ensureLeverage(params: {
     symbol: string;
     leverage: number;
-    apiKey: string;
-    apiSecret: string;
+    apiKeyId: string;
+    apiKeySecret: string;
     passphrase?: string;
     useTestnet: boolean;
   }): Promise<void> {
@@ -79,8 +80,8 @@ export class BinanceFuturesAdapter implements ExchangeAdapter {
     side: 'BUY' | 'SELL';
     quantity: number;
     leverage: number;
-    apiKey: string;
-    apiSecret: string;
+    apiKeyId: string;
+    apiKeySecret: string;
     passphrase?: string;
     useTestnet: boolean;
     takeProfitPercent?: number;

@@ -1,16 +1,16 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 
 import {
-  EXCHANGES,
+  ExchangeType,
+  NetworkMode,
   type ExchangeSlug,
-  type NetworkMode,
 } from '../exchange.constants';
 
 export class VerifyExchangeCredentialsDto {
-  @IsIn(EXCHANGES)
+  @IsEnum(ExchangeType)
   exchange!: ExchangeSlug;
 
-  @IsIn(['MAINNET', 'TESTNET'])
+  @IsEnum(NetworkMode)
   mode!: NetworkMode;
 
   @IsString()

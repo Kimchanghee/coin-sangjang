@@ -1,18 +1,73 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateExchangeAccountDto } from './create-exchange-account.dto';
-import { IsEnum, IsOptional } from 'class-validator';
+import { Transform, type TransformFnParams } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import {
+  type ExchangeAccountMetadata,
+  ExchangeType,
+  NetworkMode,
+  isExchangeAccountMetadata,
+} from '../types/exchange.types';
 
-export enum AccountStatus {
-  ACTIVE = 'ACTIVE',
-  INACTIVE = 'INACTIVE',
-  SUSPENDED = 'SUSPENDED',
-  PENDING_APPROVAL = 'PENDING_APPROVAL',
-}
+const trimString = ({ value }: TransformFnParams) =>
+  typeof value === 'string' ? value.trim() : value;
 
-export class UpdateExchangeAccountDto extends PartialType(
-  CreateExchangeAccountDto,
-) {
+const normalizeMetadata = ({
+  value,
+}: TransformFnParams): ExchangeAccountMetadata | undefined =>
+  isExchangeAccountMetadata(value) ? value : undefined;
+
+export class UpdateExchangeAccountDto {
   @IsOptional()
-  @IsEnum(AccountStatus)
-  status?: AccountStatus;
+  @IsEnum(ExchangeType)
+  exchange?: ExchangeType;
+
+  @IsOptional()
+  @IsString()
+  @Transform(trimString, { toClassOnly: true })
+  apiKeyId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(trimString, { toClassOnly: true })
+  apiKeySecret?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(trimString, { toClassOnly: true })
+  passphrase?: string;
+
+  @IsOptional()
+  @IsEnum(NetworkMode)
+  mode?: NetworkMode;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(125)
+  defaultLeverage?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  @Transform(normalizeMetadata, { toClassOnly: true })
+  metadata?: ExchangeAccountMetadata;
+
+  static hasCredentialChanges(dto: UpdateExchangeAccountDto): boolean {
+    return (
+      dto.apiKeyId !== undefined ||
+      dto.apiKeySecret !== undefined ||
+      dto.passphrase !== undefined
+    );
+  }
 }
