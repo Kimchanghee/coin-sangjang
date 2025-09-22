@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 import { ExchangeAccount } from '../entities/exchange-account.entity';
+import { CreateExchangeAccountDto } from '../dto/create-exchange-account.dto';
 import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
 import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
 import {

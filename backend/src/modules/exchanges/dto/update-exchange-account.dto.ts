@@ -9,7 +9,6 @@ import {
   Max,
   Min,
 } from 'class-validator';
-
 import {
   type ExchangeAccountMetadata,
   ExchangeType,

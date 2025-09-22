@@ -43,12 +43,10 @@ export const normalizeExchangeType = (
   if (isSupportedExchange(value)) {
     return value;
   }
-
   if (typeof value === 'string') {
     const normalized = value.trim().toUpperCase();
     return isSupportedExchange(normalized) ? normalized : undefined;
   }
-
   return undefined;
 };
 
