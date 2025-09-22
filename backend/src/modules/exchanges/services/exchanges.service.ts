@@ -22,7 +22,7 @@ import {
   type VerifyExchangeCredentialsResponseDto,
 } from '../dto/verify-exchange-credentials.dto';
 
-type SupportedExchangeInput = ExchangeType | 'GATE';
+type SupportedExchangeInput = ExchangeType;
 type UpsertPayload = UpsertExchangeAccountDto & {
   metadata?: ExchangeAccountMetadata;
 };
@@ -957,10 +957,6 @@ export class ExchangesService {
   private normalizeExchangeSlug(
     exchange: SupportedExchangeInput,
   ): ExchangeType {
-    if (exchange === 'GATE') {
-      return ExchangeType.GATEIO;
-    }
-
     return exchange;
   }
 

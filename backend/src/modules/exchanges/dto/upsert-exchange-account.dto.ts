@@ -8,15 +8,11 @@ import {
   Min,
 } from 'class-validator';
 
-import {
-  ExchangeType,
-  NetworkMode,
-  type ExchangeSlug,
-} from '../exchange.constants';
+import { ExchangeType, NetworkMode } from '../types/exchange.types';
 
 export class UpsertExchangeAccountDto {
   @IsEnum(ExchangeType)
-  exchange!: ExchangeSlug;
+  exchange!: ExchangeType;
 
   @IsString()
   apiKeyId!: string;

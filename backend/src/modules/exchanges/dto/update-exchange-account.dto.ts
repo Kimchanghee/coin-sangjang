@@ -9,17 +9,13 @@ import {
   Min,
 } from 'class-validator';
 
-import {
-  ExchangeType,
-  NetworkMode,
-  type ExchangeSlug,
-} from '../exchange.constants';
+import { ExchangeType, NetworkMode } from '../types/exchange.types';
 import type { ExchangeAccountMetadata } from './create-exchange-account.dto';
 
 export class UpdateExchangeAccountDto {
   @IsOptional()
   @IsEnum(ExchangeType)
-  exchange?: ExchangeSlug;
+  exchange?: ExchangeType;
 
   @IsOptional()
   @IsString()
