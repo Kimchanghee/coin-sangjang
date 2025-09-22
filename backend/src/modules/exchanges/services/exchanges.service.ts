@@ -1,10 +1,9 @@
-import { Injectable, Logger, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { ExchangeAccount } from '../entities/exchange-account.entity';
-import { User } from '../../users/entities/user.entity';
 import { CreateExchangeAccountDto } from '../dto/create-exchange-account.dto';
 import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
 import { ExchangeType, AccountStatus } from '../types/exchange.types';
@@ -76,9 +75,14 @@ export class ExchangesService {
   /**
    * 거래 실행 준비 (컨트롤러에서 사용)
    */
-  async prepareExecution(normalized: any, options?: any): Promise<any> {
-    const symbol = typeof normalized === 'string' ? normalized : normalized.symbol;
-    const diagnostics = [];
+  prepareExecution(normalized: any, options?: any): Promise<any> {
+    const symbol =
+      typeof normalized === 'string' ? normalized : normalized.symbol;
+    const diagnostics: Array<{
+      exchange: ExchangeType;
+      ready: boolean;
+      message: string;
+    }> = [];
 
     // 각 거래소별 준비 상태 확인
     for (const exchange of Object.values(ExchangeType)) {
@@ -89,12 +93,12 @@ export class ExchangesService {
       });
     }
 
-    return {
+    return Promise.resolve({
       symbol,
       diagnostics,
-      ready: diagnostics.some(d => d.ready),
+      ready: diagnostics.some((d) => d.ready),
       useTestnet: options?.useTestnet || false,
-    };
+    });
   }
 
   /**
@@ -213,9 +217,13 @@ export class ExchangesService {
 
     // API 키 업데이트 시 재암호화 및 검증
     if (updateDto.apiKey || updateDto.secretKey) {
-      const apiKey = updateDto.apiKey || this.decryptData(account.apiKey || account['apiKeyId']);
-      const secretKey = updateDto.secretKey || this.decryptData(account.secretKey || '');
-      const passphrase = updateDto.passphrase || 
+      const apiKey =
+        updateDto.apiKey ||
+        this.decryptData(account.apiKey || account['apiKeyId']);
+      const secretKey =
+        updateDto.secretKey || this.decryptData(account.secretKey || '');
+      const passphrase =
+        updateDto.passphrase ||
         (account.passphrase ? this.decryptData(account.passphrase) : undefined);
 
       const isValid = await this.validateApiKeys(
@@ -344,7 +352,7 @@ export class ExchangesService {
     const timestamp = Date.now();
     const recvWindow = 5000;
     const queryString = `api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
-    
+
     const signature = crypto
       .createHmac('sha256', secretKey)
       .update(queryString)
@@ -376,7 +384,7 @@ export class ExchangesService {
     const timestamp = new Date().toISOString();
     const method = 'GET';
     const requestPath = '/api/v5/account/balance';
-    
+
     const preSign = `${timestamp}${method}${requestPath}`;
     const signature = crypto
       .createHmac('sha256', secretKey)
@@ -424,7 +432,7 @@ export class ExchangesService {
     const requestPath = '/api/v4/spot/accounts';
     const queryString = '';
     const hashedPayload = crypto.createHash('sha512').update('').digest('hex');
-    
+
     const preSign = `${method}\n${requestPath}\n${queryString}\n${hashedPayload}\n${timestamp}`;
     const signature = crypto
       .createHmac('sha512', secretKey)
@@ -437,9 +445,9 @@ export class ExchangesService {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'KEY': apiKey,
-          'SIGN': signature,
-          'Timestamp': timestamp.toString(),
+          KEY: apiKey,
+          SIGN: signature,
+          Timestamp: timestamp.toString(),
           'Content-Type': 'application/json',
         },
       });
@@ -462,7 +470,7 @@ export class ExchangesService {
     const timestamp = Date.now().toString();
     const method = 'GET';
     const requestPath = '/api/spot/v1/account/assets';
-    
+
     const preSign = `${timestamp}${method}${requestPath}`;
     const signature = crypto
       .createHmac('sha256', secretKey)
@@ -535,13 +543,23 @@ export class ExchangesService {
         return await this.executeBybitOrder(apiKey, secretKey, orderData);
       case ExchangeType.OKX:
       case 'OKX':
-        return await this.executeOkxOrder(apiKey, secretKey, passphrase, orderData);
+        return await this.executeOkxOrder(
+          apiKey,
+          secretKey,
+          passphrase,
+          orderData,
+        );
       case ExchangeType.GATE:
       case 'GATE':
         return await this.executeGateOrder(apiKey, secretKey, orderData);
       case ExchangeType.BITGET:
       case 'BITGET':
-        return await this.executeBitgetOrder(apiKey, secretKey, passphrase, orderData);
+        return await this.executeBitgetOrder(
+          apiKey,
+          secretKey,
+          passphrase,
+          orderData,
+        );
       default:
         throw new BadRequestException(`지원하지 않는 거래소: ${exchangeType}`);
     }
@@ -556,7 +574,7 @@ export class ExchangesService {
     orderData: any,
   ): Promise<any> {
     const timestamp = Date.now();
-    const params = {
+    const params: Record<string, string | number | boolean | undefined> = {
       symbol: orderData.symbol,
       side: orderData.side,
       type: orderData.type,
@@ -566,7 +584,8 @@ export class ExchangesService {
     };
 
     const queryString = Object.entries(params)
-      .map(([key, value]) => `${key}=${value}`)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
       .join('&');
 
     const signature = crypto
@@ -600,7 +619,7 @@ export class ExchangesService {
     orderData: any,
   ): Promise<any> {
     const timestamp = Date.now();
-    const params = {
+    const params: Record<string, string | number | boolean | undefined> = {
       category: 'spot',
       symbol: orderData.symbol,
       side: orderData.side,
@@ -619,7 +638,8 @@ export class ExchangesService {
       }, {});
 
     const queryString = Object.entries(sortedParams)
-      .map(([key, value]) => `${key}=${value}`)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
       .join('&');
 
     const signature = crypto
@@ -657,7 +677,7 @@ export class ExchangesService {
     const timestamp = new Date().toISOString();
     const method = 'POST';
     const requestPath = '/api/v5/trade/order';
-    
+
     const body = JSON.stringify({
       instId: orderData.symbol,
       tdMode: 'cash',
@@ -713,7 +733,7 @@ export class ExchangesService {
     const timestamp = Math.floor(Date.now() / 1000);
     const method = 'POST';
     const requestPath = '/api/v4/spot/orders';
-    
+
     const body = JSON.stringify({
       currency_pair: orderData.symbol,
       type: orderData.orderType || 'limit',
@@ -726,7 +746,7 @@ export class ExchangesService {
       .createHash('sha512')
       .update(body)
       .digest('hex');
-    
+
     const preSign = `${method}\n${requestPath}\n\n${hashedPayload}\n${timestamp}`;
     const signature = crypto
       .createHmac('sha512', secretKey)
@@ -739,9 +759,9 @@ export class ExchangesService {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'KEY': apiKey,
-          'SIGN': signature,
-          'Timestamp': timestamp.toString(),
+          KEY: apiKey,
+          SIGN: signature,
+          Timestamp: timestamp.toString(),
           'Content-Type': 'application/json',
         },
         body,
@@ -766,7 +786,7 @@ export class ExchangesService {
     const timestamp = Date.now().toString();
     const method = 'POST';
     const requestPath = '/api/spot/v1/trade/orders';
-    
+
     const body = JSON.stringify({
       symbol: orderData.symbol,
       side: orderData.side,
@@ -816,28 +836,28 @@ export class ExchangesService {
   private encryptData(data: string): string {
     const algorithm = 'aes-256-cbc';
     const encKey = this.configService.get<string>('ENCRYPTION_KEY');
-    
+
     if (!encKey) {
       // 개발 환경용 기본 키 (프로덕션에서는 반드시 환경변수 사용)
       const defaultKey = crypto.randomBytes(32).toString('hex');
       this.logger.warn('ENCRYPTION_KEY not configured, using temporary key');
       const key = Buffer.from(defaultKey, 'hex');
       const iv = crypto.randomBytes(16);
-      
+
       const cipher = crypto.createCipheriv(algorithm, key, iv);
       let encrypted = cipher.update(data, 'utf8', 'hex');
       encrypted += cipher.final('hex');
-      
+
       return `${iv.toString('hex')}:${encrypted}`;
     }
-    
+
     const key = Buffer.from(encKey, 'hex');
     const iv = crypto.randomBytes(16);
-    
+
     const cipher = crypto.createCipheriv(algorithm, key, iv);
     let encrypted = cipher.update(data, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    
+
     return `${iv.toString('hex')}:${encrypted}`;
   }
 
@@ -848,24 +868,24 @@ export class ExchangesService {
     if (!encryptedData || !encryptedData.includes(':')) {
       return '';
     }
-    
+
     const algorithm = 'aes-256-cbc';
     const encKey = this.configService.get<string>('ENCRYPTION_KEY');
-    
+
     if (!encKey) {
       this.logger.error('ENCRYPTION_KEY not configured for decryption');
       return '';
     }
-    
+
     const key = Buffer.from(encKey, 'hex');
-    
+
     const [ivHex, encrypted] = encryptedData.split(':');
     const iv = Buffer.from(ivHex, 'hex');
-    
+
     const decipher = crypto.createDecipheriv(algorithm, key, iv);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
-    
+
     return decrypted;
   }
 
@@ -888,7 +908,9 @@ export class ExchangesService {
       return false;
     }
 
-    const apiKey = this.decryptData(account.apiKey || account['apiKeyId'] || '');
+    const apiKey = this.decryptData(
+      account.apiKey || account['apiKeyId'] || '',
+    );
     const secretKey = this.decryptData(account.secretKey || '');
     const passphrase = account.passphrase
       ? this.decryptData(account.passphrase)
