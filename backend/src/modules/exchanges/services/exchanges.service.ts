@@ -155,9 +155,9 @@ export class ExchangesService {
   ): Promise<ExchangeBalanceBreakdownDto[]> {
     const balances: ExchangeBalanceBreakdownDto[] = [];
 
-    const headers = {
+    const headers: Record<string, string> = {
       'X-MBX-APIKEY': dto.apiKeyId,
-    } satisfies Record<string, string>;
+    };
 
     const signQuery = (
       params?: Record<string, string | number | undefined>,
