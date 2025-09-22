@@ -554,7 +554,9 @@ export class ExchangesService {
     dto: VerifyExchangeCredentialsDto,
     useTestnet: boolean,
   ): Promise<ExchangeBalanceBreakdownDto[]> {
-    if (!dto.passphrase) {
+    const { passphrase } = dto;
+
+    if (!passphrase) {
       throw new Error('Passphrase is required for Bitget');
     }
 
@@ -572,7 +574,7 @@ export class ExchangesService {
       const headers: Record<string, string> = {
         'ACCESS-KEY': dto.apiKeyId,
         'ACCESS-SIGN': signature,
-        'ACCESS-PASSPHRASE': dto.passphrase!,
+        'ACCESS-PASSPHRASE': passphrase,
         'ACCESS-TIMESTAMP': timestamp,
         'Content-Type': 'application/json',
       };
