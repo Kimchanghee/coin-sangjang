@@ -155,9 +155,9 @@ export class ExchangesService {
   ): Promise<ExchangeBalanceBreakdownDto[]> {
     const balances: ExchangeBalanceBreakdownDto[] = [];
 
-    const headers = {
+    const headers: Record<string, string> = {
       'X-MBX-APIKEY': dto.apiKeyId,
-    } satisfies Record<string, string>;
+    };
 
     const signQuery = (
       params?: Record<string, string | number | undefined>,
@@ -571,13 +571,13 @@ export class ExchangesService {
         .update(`${timestamp}GET${path}${queryString}`)
         .digest('base64');
       const url = `${baseUrl}${path}${queryString ? `?${queryString}` : ''}`;
-      const headers = {
+      const headers: Record<string, string> = {
         'ACCESS-KEY': dto.apiKeyId,
         'ACCESS-SIGN': signature,
         'ACCESS-PASSPHRASE': passphrase,
         'ACCESS-TIMESTAMP': timestamp,
         'Content-Type': 'application/json',
-      } satisfies Record<string, string>;
+      };
 
       const response = await fetch(url, { headers });
       if (!response.ok) {
