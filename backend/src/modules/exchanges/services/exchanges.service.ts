@@ -1,13 +1,21 @@
-import { Injectable, Logger, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+
 import { ExchangeAccount } from '../entities/exchange-account.entity';
-import { User } from '../../users/entities/user.entity';
 import { CreateExchangeAccountDto } from '../dto/create-exchange-account.dto';
 import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
-import { ExchangeType, AccountStatus } from '../types/exchange.types';
+import {
+  EXCHANGE_SYMBOL,
+  ExchangeAvailabilityDiagnostic,
+  ExchangeType,
+  PrepareExecutionOptions,
+  PrepareExecutionResult,
+  SUPPORTED_EXCHANGES,
+} from '../types/exchange.types';
+import type { ExchangeSlug } from '../exchange.constants';
 
 @Injectable()
 export class ExchangesService {
@@ -53,8 +61,8 @@ export class ExchangesService {
     try {
       const isValid = await this.validateApiKeys(
         dto.exchange,
-        dto.apiKey,
-        dto.secretKey,
+        dto.apiKeyId,
+        dto.apiKeySecret,
         dto.passphrase,
       );
 
@@ -76,25 +84,27 @@ export class ExchangesService {
   /**
    * 거래 실행 준비 (컨트롤러에서 사용)
    */
-  async prepareExecution(normalized: any, options?: any): Promise<any> {
-    const symbol = typeof normalized === 'string' ? normalized : normalized.symbol;
-    const diagnostics = [];
-
-    // 각 거래소별 준비 상태 확인
-    for (const exchange of Object.values(ExchangeType)) {
-      diagnostics.push({
+  prepareExecution(
+    normalized: any,
+    options?: PrepareExecutionOptions,
+  ): Promise<PrepareExecutionResult> {
+    const symbol =
+      typeof normalized === 'string' ? normalized : normalized.symbol;
+    const diagnostics: ExchangeAvailabilityDiagnostic[] =
+      SUPPORTED_EXCHANGES.map((exchange) => ({
         exchange,
-        ready: true, // 실제로는 계정 상태 등을 확인해야 함
+        ready: true,
+        available: true,
         message: 'Ready for trading',
-      });
-    }
+        checkedAt: new Date().toISOString(),
+      }));
 
-    return {
+    return Promise.resolve({
       symbol,
       diagnostics,
-      ready: diagnostics.some(d => d.ready),
-      useTestnet: options?.useTestnet || false,
-    };
+      ready: diagnostics.some((d) => d.ready),
+      useTestnet: options?.useTestnet ?? false,
+    });
   }
 
   /**
@@ -117,18 +127,16 @@ export class ExchangesService {
       );
     }
 
-    // API 키 암호화
-    const encryptedApiKey = this.encryptData(createDto.apiKey);
-    const encryptedSecretKey = this.encryptData(createDto.secretKey);
+    const encryptedApiKeyId = this.encryptData(createDto.apiKeyId);
+    const encryptedApiKeySecret = this.encryptData(createDto.apiKeySecret);
     const encryptedPassphrase = createDto.passphrase
       ? this.encryptData(createDto.passphrase)
-      : null;
+      : undefined;
 
-    // API 키 유효성 검증
     const isValid = await this.validateApiKeys(
       createDto.exchange,
-      createDto.apiKey,
-      createDto.secretKey,
+      createDto.apiKeyId,
+      createDto.apiKeySecret,
       createDto.passphrase,
     );
 
@@ -139,13 +147,14 @@ export class ExchangesService {
     const account = this.exchangeAccountRepository.create({
       userId,
       exchange: createDto.exchange,
-      apiKey: encryptedApiKey,
-      secretKey: encryptedSecretKey,
+      mode: createDto.mode,
+      apiKeyId: encryptedApiKeyId,
+      apiKeySecret: encryptedApiKeySecret,
       passphrase: encryptedPassphrase,
-      isTestnet: createDto.isTestnet || false,
-      status: AccountStatus.ACTIVE,
-      metadata: createDto.metadata || {},
-    } as any); // 타입 오류 임시 회피
+      defaultLeverage: createDto.defaultLeverage ?? 5,
+      isActive: createDto.isActive ?? true,
+      metadata: createDto.metadata ?? {},
+    });
 
     return await this.exchangeAccountRepository.save(account);
   }
@@ -159,12 +168,13 @@ export class ExchangesService {
       select: [
         'id',
         'exchange',
-        'isTestnet',
-        'status',
+        'mode',
+        'isActive',
+        'defaultLeverage',
         'metadata',
         'createdAt',
         'updatedAt',
-      ] as any, // 타입 오류 임시 회피
+      ],
     });
   }
 
@@ -180,12 +190,13 @@ export class ExchangesService {
       select: [
         'id',
         'exchange',
-        'isTestnet',
-        'status',
+        'mode',
+        'isActive',
+        'defaultLeverage',
         'metadata',
         'createdAt',
         'updatedAt',
-      ] as any, // 타입 오류 임시 회피
+      ],
     });
 
     if (!account) {
@@ -211,17 +222,31 @@ export class ExchangesService {
       throw new BadRequestException('거래소 계정을 찾을 수 없습니다.');
     }
 
-    // API 키 업데이트 시 재암호화 및 검증
-    if (updateDto.apiKey || updateDto.secretKey) {
-      const apiKey = updateDto.apiKey || this.decryptData(account.apiKey || account['apiKeyId']);
-      const secretKey = updateDto.secretKey || this.decryptData(account.secretKey || '');
-      const passphrase = updateDto.passphrase || 
-        (account.passphrase ? this.decryptData(account.passphrase) : undefined);
+    const shouldValidateKeys =
+      updateDto.apiKeyId !== undefined ||
+      updateDto.apiKeySecret !== undefined ||
+      updateDto.passphrase !== undefined;
+
+    if (shouldValidateKeys) {
+      const currentApiKeyId =
+        this.decryptData(account.apiKeyId) || account.apiKeyId;
+      const currentApiKeySecret =
+        this.decryptData(account.apiKeySecret) || account.apiKeySecret;
+      const currentPassphrase = account.passphrase
+        ? this.decryptData(account.passphrase)
+        : undefined;
+
+      const apiKeyId = updateDto.apiKeyId ?? currentApiKeyId;
+      const apiKeySecret = updateDto.apiKeySecret ?? currentApiKeySecret;
+      const passphrase =
+        updateDto.passphrase !== undefined
+          ? updateDto.passphrase || undefined
+          : currentPassphrase;
 
       const isValid = await this.validateApiKeys(
         account.exchange,
-        apiKey,
-        secretKey,
+        apiKeyId,
+        apiKeySecret,
         passphrase,
       );
 
@@ -229,21 +254,31 @@ export class ExchangesService {
         throw new BadRequestException('유효하지 않은 API 키입니다.');
       }
 
-      if (updateDto.apiKey) {
-        (account as any).apiKey = this.encryptData(updateDto.apiKey);
+      if (updateDto.apiKeyId) {
+        account.apiKeyId = this.encryptData(updateDto.apiKeyId);
       }
-      if (updateDto.secretKey) {
-        (account as any).secretKey = this.encryptData(updateDto.secretKey);
+      if (updateDto.apiKeySecret) {
+        account.apiKeySecret = this.encryptData(updateDto.apiKeySecret);
       }
-      if (updateDto.passphrase) {
-        account.passphrase = this.encryptData(updateDto.passphrase);
+      if (updateDto.passphrase !== undefined) {
+        account.passphrase = updateDto.passphrase
+          ? this.encryptData(updateDto.passphrase)
+          : undefined;
       }
     }
 
-    if (updateDto.status !== undefined) {
-      (account as any).status = updateDto.status;
+    if (updateDto.exchange) {
+      account.exchange = updateDto.exchange;
     }
-
+    if (updateDto.mode) {
+      account.mode = updateDto.mode;
+    }
+    if (typeof updateDto.defaultLeverage === 'number') {
+      account.defaultLeverage = updateDto.defaultLeverage;
+    }
+    if (typeof updateDto.isActive === 'boolean') {
+      account.isActive = updateDto.isActive;
+    }
     if (updateDto.metadata) {
       account.metadata = { ...account.metadata, ...updateDto.metadata };
     }
@@ -272,35 +307,41 @@ export class ExchangesService {
    * 거래소별 API 검증
    */
   private async validateApiKeys(
-    exchange: ExchangeType | string,
+    exchange: ExchangeType | 'GATE',
     apiKey: string,
     secretKey: string,
     passphrase?: string,
   ): Promise<boolean> {
+    const normalizedExchange =
+      exchange === 'GATE' ? EXCHANGE_SYMBOL.GATEIO : exchange;
+
     try {
-      switch (exchange) {
-        case ExchangeType.BINANCE:
+      switch (normalizedExchange) {
+        case EXCHANGE_SYMBOL.BINANCE:
         case 'BINANCE':
           return await this.validateBinanceKeys(apiKey, secretKey);
-        case ExchangeType.BYBIT:
+        case EXCHANGE_SYMBOL.BYBIT:
         case 'BYBIT':
           return await this.validateBybitKeys(apiKey, secretKey);
-        case ExchangeType.OKX:
+        case EXCHANGE_SYMBOL.OKX:
         case 'OKX':
           return await this.validateOkxKeys(apiKey, secretKey, passphrase);
-        case ExchangeType.GATE:
-        case 'GATE':
+        case EXCHANGE_SYMBOL.GATEIO:
+        case 'GATEIO':
           return await this.validateGateKeys(apiKey, secretKey);
-        case ExchangeType.BITGET:
+        case EXCHANGE_SYMBOL.BITGET:
         case 'BITGET':
           return await this.validateBitgetKeys(apiKey, secretKey, passphrase);
         default:
-          throw new BadRequestException(`지원하지 않는 거래소: ${exchange}`);
+          break;
       }
     } catch (error) {
       this.logger.error(`API 키 검증 실패: ${error.message}`);
       return false;
     }
+
+    const unknownExchange: string = normalizedExchange;
+    throw new BadRequestException(`지원하지 않는 거래소: ${unknownExchange}`);
   }
 
   /**
@@ -344,7 +385,7 @@ export class ExchangesService {
     const timestamp = Date.now();
     const recvWindow = 5000;
     const queryString = `api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
-    
+
     const signature = crypto
       .createHmac('sha256', secretKey)
       .update(queryString)
@@ -376,7 +417,7 @@ export class ExchangesService {
     const timestamp = new Date().toISOString();
     const method = 'GET';
     const requestPath = '/api/v5/account/balance';
-    
+
     const preSign = `${timestamp}${method}${requestPath}`;
     const signature = crypto
       .createHmac('sha256', secretKey)
@@ -424,7 +465,7 @@ export class ExchangesService {
     const requestPath = '/api/v4/spot/accounts';
     const queryString = '';
     const hashedPayload = crypto.createHash('sha512').update('').digest('hex');
-    
+
     const preSign = `${method}\n${requestPath}\n${queryString}\n${hashedPayload}\n${timestamp}`;
     const signature = crypto
       .createHmac('sha512', secretKey)
@@ -437,9 +478,9 @@ export class ExchangesService {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'KEY': apiKey,
-          'SIGN': signature,
-          'Timestamp': timestamp.toString(),
+          KEY: apiKey,
+          SIGN: signature,
+          Timestamp: timestamp.toString(),
           'Content-Type': 'application/json',
         },
       });
@@ -462,7 +503,7 @@ export class ExchangesService {
     const timestamp = Date.now().toString();
     const method = 'GET';
     const requestPath = '/api/spot/v1/account/assets';
-    
+
     const preSign = `${timestamp}${method}${requestPath}`;
     const signature = crypto
       .createHmac('sha256', secretKey)
@@ -503,45 +544,59 @@ export class ExchangesService {
    */
   async executeOrder(
     userId: string,
-    exchangeType: ExchangeType | string,
+    exchangeType: ExchangeType | 'GATE',
     orderData: any,
   ): Promise<any> {
+    const normalizedExchange =
+      exchangeType === 'GATE' ? EXCHANGE_SYMBOL.GATEIO : exchangeType;
     const account = await this.exchangeAccountRepository.findOne({
       where: {
         userId,
-        exchange: exchangeType as any,
-        status: AccountStatus.ACTIVE as any,
-      } as any,
+        exchange: normalizedExchange as ExchangeSlug,
+        isActive: true,
+      },
     });
 
     if (!account) {
+      const exchangeLabel = String(normalizedExchange);
       throw new BadRequestException(
-        `활성화된 ${exchangeType} 거래소 계정이 없습니다.`,
+        `활성화된 ${exchangeLabel} 거래소 계정이 없습니다.`,
       );
     }
 
-    const apiKey = this.decryptData(account.apiKey || account['apiKeyId']);
-    const secretKey = this.decryptData(account.secretKey || '');
+    const apiKey = this.decryptData(account.apiKeyId) || account.apiKeyId;
+    const secretKey =
+      this.decryptData(account.apiKeySecret) || account.apiKeySecret;
     const passphrase = account.passphrase
       ? this.decryptData(account.passphrase)
       : undefined;
 
-    switch (exchangeType) {
-      case ExchangeType.BINANCE:
+    switch (normalizedExchange) {
+      case EXCHANGE_SYMBOL.BINANCE:
       case 'BINANCE':
         return await this.executeBinanceOrder(apiKey, secretKey, orderData);
-      case ExchangeType.BYBIT:
+      case EXCHANGE_SYMBOL.BYBIT:
       case 'BYBIT':
         return await this.executeBybitOrder(apiKey, secretKey, orderData);
-      case ExchangeType.OKX:
+      case EXCHANGE_SYMBOL.OKX:
       case 'OKX':
-        return await this.executeOkxOrder(apiKey, secretKey, passphrase, orderData);
-      case ExchangeType.GATE:
-      case 'GATE':
+        return await this.executeOkxOrder(
+          apiKey,
+          secretKey,
+          passphrase,
+          orderData,
+        );
+      case EXCHANGE_SYMBOL.GATEIO:
+      case 'GATEIO':
         return await this.executeGateOrder(apiKey, secretKey, orderData);
-      case ExchangeType.BITGET:
+      case EXCHANGE_SYMBOL.BITGET:
       case 'BITGET':
-        return await this.executeBitgetOrder(apiKey, secretKey, passphrase, orderData);
+        return await this.executeBitgetOrder(
+          apiKey,
+          secretKey,
+          passphrase,
+          orderData,
+        );
       default:
         throw new BadRequestException(`지원하지 않는 거래소: ${exchangeType}`);
     }
@@ -556,7 +611,7 @@ export class ExchangesService {
     orderData: any,
   ): Promise<any> {
     const timestamp = Date.now();
-    const params = {
+    const params: Record<string, string | number | boolean | undefined> = {
       symbol: orderData.symbol,
       side: orderData.side,
       type: orderData.type,
@@ -566,7 +621,8 @@ export class ExchangesService {
     };
 
     const queryString = Object.entries(params)
-      .map(([key, value]) => `${key}=${value}`)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
       .join('&');
 
     const signature = crypto
@@ -600,7 +656,7 @@ export class ExchangesService {
     orderData: any,
   ): Promise<any> {
     const timestamp = Date.now();
-    const params = {
+    const params: Record<string, string | number | boolean | undefined> = {
       category: 'spot',
       symbol: orderData.symbol,
       side: orderData.side,
@@ -619,7 +675,8 @@ export class ExchangesService {
       }, {});
 
     const queryString = Object.entries(sortedParams)
-      .map(([key, value]) => `${key}=${value}`)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
       .join('&');
 
     const signature = crypto
@@ -657,7 +714,7 @@ export class ExchangesService {
     const timestamp = new Date().toISOString();
     const method = 'POST';
     const requestPath = '/api/v5/trade/order';
-    
+
     const body = JSON.stringify({
       instId: orderData.symbol,
       tdMode: 'cash',
@@ -713,7 +770,7 @@ export class ExchangesService {
     const timestamp = Math.floor(Date.now() / 1000);
     const method = 'POST';
     const requestPath = '/api/v4/spot/orders';
-    
+
     const body = JSON.stringify({
       currency_pair: orderData.symbol,
       type: orderData.orderType || 'limit',
@@ -726,7 +783,7 @@ export class ExchangesService {
       .createHash('sha512')
       .update(body)
       .digest('hex');
-    
+
     const preSign = `${method}\n${requestPath}\n\n${hashedPayload}\n${timestamp}`;
     const signature = crypto
       .createHmac('sha512', secretKey)
@@ -739,9 +796,9 @@ export class ExchangesService {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'KEY': apiKey,
-          'SIGN': signature,
-          'Timestamp': timestamp.toString(),
+          KEY: apiKey,
+          SIGN: signature,
+          Timestamp: timestamp.toString(),
           'Content-Type': 'application/json',
         },
         body,
@@ -766,7 +823,7 @@ export class ExchangesService {
     const timestamp = Date.now().toString();
     const method = 'POST';
     const requestPath = '/api/spot/v1/trade/orders';
-    
+
     const body = JSON.stringify({
       symbol: orderData.symbol,
       side: orderData.side,
@@ -816,28 +873,28 @@ export class ExchangesService {
   private encryptData(data: string): string {
     const algorithm = 'aes-256-cbc';
     const encKey = this.configService.get<string>('ENCRYPTION_KEY');
-    
+
     if (!encKey) {
       // 개발 환경용 기본 키 (프로덕션에서는 반드시 환경변수 사용)
       const defaultKey = crypto.randomBytes(32).toString('hex');
       this.logger.warn('ENCRYPTION_KEY not configured, using temporary key');
       const key = Buffer.from(defaultKey, 'hex');
       const iv = crypto.randomBytes(16);
-      
+
       const cipher = crypto.createCipheriv(algorithm, key, iv);
       let encrypted = cipher.update(data, 'utf8', 'hex');
       encrypted += cipher.final('hex');
-      
+
       return `${iv.toString('hex')}:${encrypted}`;
     }
-    
+
     const key = Buffer.from(encKey, 'hex');
     const iv = crypto.randomBytes(16);
-    
+
     const cipher = crypto.createCipheriv(algorithm, key, iv);
     let encrypted = cipher.update(data, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    
+
     return `${iv.toString('hex')}:${encrypted}`;
   }
 
@@ -848,24 +905,24 @@ export class ExchangesService {
     if (!encryptedData || !encryptedData.includes(':')) {
       return '';
     }
-    
+
     const algorithm = 'aes-256-cbc';
     const encKey = this.configService.get<string>('ENCRYPTION_KEY');
-    
+
     if (!encKey) {
       this.logger.error('ENCRYPTION_KEY not configured for decryption');
       return '';
     }
-    
+
     const key = Buffer.from(encKey, 'hex');
-    
+
     const [ivHex, encrypted] = encryptedData.split(':');
     const iv = Buffer.from(ivHex, 'hex');
-    
+
     const decipher = crypto.createDecipheriv(algorithm, key, iv);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
-    
+
     return decrypted;
   }
 
@@ -874,28 +931,31 @@ export class ExchangesService {
    */
   async checkAccountStatus(
     userId: string,
-    exchangeType: ExchangeType | string,
+    exchangeType: ExchangeType | 'GATE',
   ): Promise<boolean> {
+    const normalizedExchange =
+      exchangeType === 'GATE' ? EXCHANGE_SYMBOL.GATEIO : exchangeType;
     const account = await this.exchangeAccountRepository.findOne({
       where: {
         userId,
-        exchange: exchangeType as any,
-        status: AccountStatus.ACTIVE as any,
-      } as any,
+        exchange: normalizedExchange as ExchangeSlug,
+        isActive: true,
+      },
     });
 
     if (!account) {
       return false;
     }
 
-    const apiKey = this.decryptData(account.apiKey || account['apiKeyId'] || '');
-    const secretKey = this.decryptData(account.secretKey || '');
+    const apiKey = this.decryptData(account.apiKeyId || '') || account.apiKeyId;
+    const secretKey =
+      this.decryptData(account.apiKeySecret || '') || account.apiKeySecret;
     const passphrase = account.passphrase
       ? this.decryptData(account.passphrase)
       : undefined;
 
     return await this.validateApiKeys(
-      exchangeType,
+      normalizedExchange,
       apiKey,
       secretKey,
       passphrase,

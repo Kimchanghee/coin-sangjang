@@ -8,6 +8,7 @@ import {
   MarketAvailabilitySnapshot,
 } from '../entities/listing-event.entity';
 import { ExchangesService } from '@/modules/exchanges/services/exchanges.service';
+import { ExchangeAvailabilityDiagnostic } from '@/modules/exchanges/types/exchange.types';
 
 @Injectable()
 export class ListingsService {
@@ -50,12 +51,18 @@ export class ListingsService {
         );
         if (availability?.diagnostics?.length) {
           const snapshot: MarketAvailabilitySnapshot[] =
-            availability.diagnostics.map((item) => ({
-              exchange: item.exchange,
-              available: Boolean(item.available),
-              checkedAt: item.checkedAt ?? new Date().toISOString(),
-              error: item.error,
-            }));
+            availability.diagnostics.map(
+              (
+                diagnostic: ExchangeAvailabilityDiagnostic,
+              ): MarketAvailabilitySnapshot => ({
+                exchange: diagnostic.exchange,
+                available: diagnostic.available ?? diagnostic.ready,
+                checkedAt: diagnostic.checkedAt ?? new Date().toISOString(),
+                error:
+                  diagnostic.error ??
+                  (diagnostic.ready ? undefined : diagnostic.message),
+              }),
+            );
           saved = await this.listingRepository.save({
             ...saved,
             marketsSnapshot: snapshot,
