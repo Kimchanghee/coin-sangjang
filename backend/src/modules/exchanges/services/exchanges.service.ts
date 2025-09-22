@@ -5,14 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 import { ExchangeAccount } from '../entities/exchange-account.entity';
-import {
-  type ExchangeAccountMetadata,
-  isExchangeAccountMetadata,
-} from '../dto/create-exchange-account.dto';
-import {
-  UpdateExchangeAccountDto,
-  hasCredentialChanges,
-} from '../dto/update-exchange-account.dto';
+import type { ExchangeAccountMetadata } from '../dto/create-exchange-account.dto';
+import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
 import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
 import {
   ExchangeAvailabilityDiagnostic,
@@ -22,7 +16,6 @@ import {
   PrepareExecutionOptions,
   PrepareExecutionResult,
   SUPPORTED_EXCHANGES,
-  resolveNetworkMode,
 } from '../types/exchange.types';
 import {
   VerifyExchangeCredentialsDto,
@@ -148,12 +141,10 @@ export class ExchangesService {
     const symbol =
       typeof normalized === 'string' ? normalized : normalized.symbol;
     const useTestnet = options?.useTestnet ?? false;
-    const mode = resolveNetworkMode(useTestnet);
     const checkedAt = new Date().toISOString();
     const diagnostics: ExchangeAvailabilityDiagnostic[] =
       SUPPORTED_EXCHANGES.map((exchange) => ({
         exchange,
-        mode,
         ready: true,
         available: true,
         message: useTestnet
@@ -323,7 +314,8 @@ export class ExchangesService {
     const nextPassphrase = hasPassphraseUpdate
       ? this.coerceCredentialInput(updateDto.passphrase)
       : undefined;
-    const shouldValidateKeys = hasCredentialChanges(updateDto);
+    const shouldValidateKeys =
+      hasApiKeyIdUpdate || hasApiKeySecretUpdate || hasPassphraseUpdate;
 
     if (shouldValidateKeys) {
       const currentApiKeyId = this.requireCredential(
@@ -1033,7 +1025,7 @@ export class ExchangesService {
   private sanitizeMetadata(
     metadata?: ExchangeAccountMetadata,
   ): ExchangeAccountMetadata | undefined {
-    if (!isExchangeAccountMetadata(metadata)) {
+    if (!this.isExchangeAccountMetadata(metadata)) {
       return undefined;
     }
 
@@ -1054,6 +1046,12 @@ export class ExchangesService {
     exchange: SupportedExchangeInput,
   ): ExchangeType {
     return exchange;
+  }
+
+  private isExchangeAccountMetadata(
+    value: unknown,
+  ): value is ExchangeAccountMetadata {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
   private getEncryptionKey(): Buffer {

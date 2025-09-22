@@ -19,9 +19,6 @@ export const SUPPORTED_NETWORK_MODES = Object.freeze(
   Object.values(NetworkMode),
 ) as ReadonlyArray<NetworkMode>;
 
-export const resolveNetworkMode = (useTestnet?: boolean): NetworkMode =>
-  useTestnet ? NetworkMode.TESTNET : NetworkMode.MAINNET;
-
 export type ExchangeOrderSide = 'BUY' | 'SELL';
 export type ExchangeOrderType = 'MARKET' | 'LIMIT';
 
@@ -59,7 +56,6 @@ export interface ExchangeBalance {
 
 export interface ExchangeAvailabilityDiagnostic {
   exchange: ExchangeType;
-  mode: NetworkMode;
   ready: boolean;
   available: boolean;
   message?: string;
