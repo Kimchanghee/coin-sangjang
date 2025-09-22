@@ -37,7 +37,7 @@ const EXCHANGES: Array<{ slug: ExchangeSlug; label: string; requiresPassphrase?:
   { slug: "BYBIT", label: "Bybit" },
   { slug: "OKX", label: "OKX", requiresPassphrase: true },
   { slug: "GATEIO", label: "Gate.io", requiresPassphrase: true },
-  { slug: "BITGET", label: "Bitget" },
+  { slug: "BITGET", label: "Bitget", requiresPassphrase: true },
 ];
 
 const DEFAULT_COPY = {
@@ -153,7 +153,11 @@ export function ApiKeysPanel({ copy }: ApiKeysPanelProps) {
 
   const handleVerify = async (exchange: ExchangeSlug) => {
     const form = forms[exchange];
-    if (!form.apiKeyId || !form.apiKeySecret) {
+    const requiresPassphrase = EXCHANGES.find(
+      (item) => item.slug === exchange,
+    )?.requiresPassphrase;
+
+    if (!form.apiKeyId || !form.apiKeySecret || (requiresPassphrase && !form.passphrase)) {
       setForms((prev) => ({
         ...prev,
         [exchange]: { ...prev[exchange], error: apiCopy.connectionError },
