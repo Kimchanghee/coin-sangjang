@@ -1,9 +1,19 @@
+# ===================================
+# 파일 경로: ./cloudbuild.yaml (프로젝트 루트)
+# 목적: Google Cloud Build 설정
+# ===================================
+
 steps:
+  # Docker 이미지 빌드
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/coin-sangjang:$COMMIT_SHA', '.']
+  
+  # 이미지를 Container Registry에 푸시
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/coin-sangjang:$COMMIT_SHA']
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+  
+  # Cloud Run에 배포
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
@@ -12,9 +22,25 @@ steps:
       - '--image'
       - 'gcr.io/$PROJECT_ID/coin-sangjang:$COMMIT_SHA'
       - '--region'
-      - 'europe-west1'
+      - 'asia-northeast3'
       - '--platform'
       - 'managed'
+      - '--port'
+      - '8080'
       - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'PORT=8080,ENABLE_TEST_MODE=true,ENABLE_AUTO_TRADING=false'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--timeout'
+      - '300'
+      - '--max-instances'
+      - '10'
+
 images:
   - 'gcr.io/$PROJECT_ID/coin-sangjang:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
