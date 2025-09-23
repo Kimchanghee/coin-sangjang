@@ -22,7 +22,13 @@ export function ResponsiveShell({
   locale,
   switchableLocales,
 }: ResponsiveShellProps) {
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.matchMedia("(max-width: 1023px)").matches;
+  });
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1023px)");
@@ -38,10 +44,6 @@ export function ResponsiveShell({
   const toolbar = (
     <LanguageSwitcher currentLocale={locale} focusLocales={switchableLocales} />
   );
-
-  if (isMobile === null) {
-    return <div className="min-h-screen bg-slate-950" />;
-  }
 
   if (isMobile) {
     return (
