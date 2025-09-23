@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { localeLabels, locales, type Locale } from "@/i18n/locales";
+import { defaultLocale, localeLabels, locales, type Locale } from "@/i18n/locales";
 
 interface LanguageSwitcherProps {
   currentLocale: Locale;
@@ -33,7 +33,16 @@ export function LanguageSwitcher({
   const matchesKnownLocale = locales.includes(potentialLocale as Locale);
   const restSegments = matchesKnownLocale ? segments.slice(1) : segments;
   const suffix = restSegments.join("/");
-  const normalizedPath = (suffix ? `/${suffix}` : "/") as Route;
+  const normalizedPath = suffix ? `/${suffix}` : "/";
+
+  const resolveHref = (locale: Locale): Route => {
+    if (locale === defaultLocale) {
+      return (normalizedPath || "/") as Route;
+    }
+
+    const localizedPath = `/${[locale, suffix].filter(Boolean).join("/")}`;
+    return (localizedPath || "/") as Route;
+  };
 
   return (
     <nav
@@ -43,12 +52,12 @@ export function LanguageSwitcher({
       {visibleLocales.map((locale) => {
         const isActive = locale === currentLocale;
         const label = localeLabels[locale];
+        const href = resolveHref(locale);
 
         return (
           <Link
             key={locale}
-            href={normalizedPath}
-            locale={locale}
+            href={href}
             aria-current={isActive ? "page" : undefined}
             className={`rounded-full px-3 py-1 font-medium transition ${
               isActive
