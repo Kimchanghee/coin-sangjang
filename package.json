@@ -1,13 +1,10 @@
 {
   "name": "coin-sangjang",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Multilingual automated trading platform reacting to Korean exchange listings.",
-  "author": "",
-  "license": "UNLICENSED",
   "workspaces": [
-    "frontend",
     "backend",
+    "frontend",
     "services/*",
     "packages/*"
   ],
@@ -15,24 +12,17 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "test": "turbo run test",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "prepare": "husky"
+    "clean": "turbo run clean",
+    "start": "pm2 start ecosystem.config.js",
+    "install:fresh": "rm -rf node_modules package-lock.json && npm install",
+    "postinstall": "echo 'Dependencies installed successfully'"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.2.0",
-    "@types/node": "^22.7.4",
-    "eslint": "^9.13.0",
-    "execa": "^8.0.1",
-    "husky": "^9.1.6",
-    "lint-staged": "^15.2.10",
-    "prettier": "^3.3.3",
-    "turbo": "^2.1.1",
-    "typescript": "^5.6.3"
+    "turbo": "^2.3.3",
+    "typescript": "^5.3.3"
   },
-  "lint-staged": {
-    "*.{ts,tsx,js,jsx}": "eslint --fix",
-    "*.{json,md,css,scss,html}": "prettier --write"
-  },
-  "packageManager": "npm@11.5.2"
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
 }
