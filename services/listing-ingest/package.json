@@ -1,22 +1,38 @@
 {
-    "name":  "@coin-sangjang/listing-ingest",
-    "version":  "0.1.0",
-    "private":  true,
-    "main":  "dist/index.js",
-    "scripts":  {
-                    "dev":  "ts-node-dev --respawn src/index.ts",
-                    "build":  "tsc -p tsconfig.json",
-                    "start":  "node dist/index.js"
-                },
-    "dependencies":  {
-                         "dotenv":  "^16.4.5",
-                         "axios":  "^1.7.7",
-                         "pino":  "^9.4.0",
-                         "ws":  "^8.18.0",
-                         "@google-cloud/pubsub":  "^4.7.5"
-                     },
-    "devDependencies":  {
-                            "ts-node":  "^10.9.2",
-                            "ts-node-dev":  "^2.0.0"
-                        }
+  "name": "listing-ingest",
+  "version": "1.0.0",
+  "description": "Korean exchange listing notification collector service",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node src/main.ts",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "bullmq": "^5.1.0",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.3.1",
+    "events": "^3.3.0",
+    "ioredis": "^5.3.2",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
