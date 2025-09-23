@@ -1,6 +1,5 @@
 "use client";
-
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import { DesktopLayout } from "./DesktopLayout";
 import { MobileLayout } from "./MobileLayout";
@@ -26,7 +25,6 @@ export function ResponsiveShell({
     if (typeof window === "undefined") {
       return false;
     }
-
     return window.matchMedia("(max-width: 1023px)").matches;
   });
 
@@ -35,9 +33,10 @@ export function ResponsiveShell({
     const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
       setIsMobile(event.matches);
     };
-
+    
     handleChange(mq);
     mq.addEventListener("change", handleChange as (event: MediaQueryListEvent) => void);
+    
     return () => mq.removeEventListener("change", handleChange as (event: MediaQueryListEvent) => void);
   }, []);
 
