@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coin Sangjang - 실시간 모니터링</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background: #0f0f23;
+            color: #e4e4e7;
+            min-height: 100vh;
+        }
+        
+        .hero {
+            background: linear-gradient(180deg, #1e1b4b 0%, #0f0f23 100%);
+            padding: 60px 20px;
+            text-align: center;
+            border-bottom: 1px solid #312e81;
+        }
+        
+        .logo {
+            font-size: 4em;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        h1 {
+            font-size: 3em;
+            background: linear-gradient(90deg, #a78bfa, #c084fc, #e879f9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #a1a1aa;
+            font-size: 1.2em;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .card {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 16px;
+            padding: 30px;
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover {
+            border-color: #6366f1;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px rgba(99, 102, 241, 0.2);
+        }
+        
+        .exchange-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .exchange-title {
+            font-size: 1.8em;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: blink 2s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .stats {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            background: #0f0f23;
+            border-radius: 8px;
+        }
+        
+        .stat-label {
+            color: #71717a;
+        }
+        
+        .stat-value {
+            color: #e4e4e7;
+            font-weight: bold;
+        }
+        
+        .feed {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 16px;
+            padding: 30px;
+        }
+        
+        .feed-header {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .feed-list {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        
+        .feed-item {
+            padding: 15px;
+            margin-bottom: 15px;
+            background: #0f0f23;
+            border-radius: 8px;
+            border-left: 3px solid #6366f1;
+            transition: all 0.3s ease;
+        }
+        
+        .feed-item:hover {
+            background: #1e1b4b;
+        }
+        
+        .feed-item.new {
+            animation: slideIn 0.5s ease;
+            border-left-color: #10b981;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        .feed-exchange {
+            color: #a78bfa;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        
+        .feed-title {
+            color: #e4e4e7;
+            margin: 5px 0;
+        }
+        
+        .feed-time {
+            color: #71717a;
+            font-size: 0.9em;
+        }
+        
+        .controls {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .control-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+            background: #0f0f23;
+            border-radius: 8px;
+        }
+        
+        .badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        
+        .badge.active {
+            background: #10b981;
+            color: white;
+        }
+        
+        .badge.inactive {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .badge.warning {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        button {
+            background: #6366f1;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover {
+            background: #4f46e5;
+            transform: translateY(-2px);
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: #71717a;
+        }
+        
+        .footer a {
+            color: #a78bfa;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <div class="logo">🚀</div>
+        <h1>Coin Sangjang</h1>
+        <p class="subtitle">한국 거래소 상장 실시간 자동 거래 시스템</p>
+    </div>
+
+    <div class="container">
+        <div class="controls">
+            <div class="feed-header">
+                ⚙️ 시스템 설정
+            </div>
+            <div class="control-grid">
+                <div class="control-item">
+                    <span>운영 모드</span>
+                    <span class="badge warning">테스트</span>
+                </div>
+                <div class="control-item">
+                    <span>자동 거래</span>
+                    <span class="badge inactive">비활성</span>
+                </div>
+                <div class="control-item">
+                    <span>모니터링</span>
+                    <span class="badge active">활성</span>
+                </div>
+                <div class="control-item">
+                    <span>체크 주기</span>
+                    <span class="badge active">30초</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard">
+            <div class="card">
+                <div class="exchange-header">
+                    <div class="exchange-title">
+                        <span>🔷 Upbit</span>
+                        <div class="status-indicator"></div>
+                    </div>
+                </div>
+                <div class="stats">
+                    <div class="stat-row">
+                        <span class="stat-label">상태</span>
+                        <span class="stat-value">모니터링 중</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">마지막 체크</span>
+                        <span class="stat-value" id="upbit-check">-</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">오늘 상장</span>
+                        <span class="stat-value" id="upbit-count">0건</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">API 상태</span>
+                        <span class="stat-value">정상</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="exchange-header">
+                    <div class="exchange-title">
+                        <span>🔶 Bithumb</span>
+                        <div class="status-indicator"></div>
+                    </div>
+                </div>
+                <div class="stats">
+                    <div class="stat-row">
+                        <span class="stat-label">상태</span>
+                        <span class="stat-value">모니터링 중</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">마지막 체크</span>
+                        <span class="stat-value" id="bithumb-check">-</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">오늘 상장</span>
+                        <span class="stat-value" id="bithumb-count">0건</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">API 상태</span>
+                        <span class="stat-value">정상</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="feed">
+            <div class="feed-header">
+                📢 실시간 공지사항
+                <button onclick="refreshFeed()">새로고침</button>
+            </div>
+            <div class="feed-list" id="feed-list">
+                <div class="feed-item new">
+                    <div class="feed-exchange">UPBIT</div>
+                    <div class="feed-title">🚨 [거래] 엑시인피니티(AXS) 원화마켓 추가</div>
+                    <div class="feed-time">방금 전</div>
+                </div>
+                <div class="feed-item">
+                    <div class="feed-exchange">BITHUMB</div>
+                    <div class="feed-title">셀레스티아(TIA) 원화 마켓 오픈 안내</div>
+                    <div class="feed-time">10분 전</div>
+                </div>
+                <div class="feed-item">
+                    <div class="feed-exchange">UPBIT</div>
+                    <div class="feed-title">시스템 점검 공지</div>
+                    <div class="feed-time">1시간 전</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>© 2024 Coin Sangjang - Korean Exchange Auto Trading System</p>
+        <p>
+            <a href="/health">Health Check</a> | 
+            <a href="/api">API Status</a> | 
+            <a href="/status">System Status</a>
+        </p>
+    </div>
+
+    <script>
+        // 시간 업데이트
+        function updateTime() {
+            const now = new Date().toLocaleTimeString('ko-KR');
+            document.getElementById('upbit-check').textContent = now;
+            document.getElementById('bithumb-check').textContent = now;
+        }
+
+        // 피드 새로고침
+        function refreshFeed() {
+            const feedList = document.getElementById('feed-list');
+            const newItem = document.createElement('div');
+            newItem.className = 'feed-item new';
+            newItem.innerHTML = `
+                <div class="feed-exchange">UPBIT</div>
+                <div class="feed-title">🔄 새로고침됨 - ${new Date().toLocaleTimeString('ko-KR')}</div>
+                <div class="feed-time">방금 전</div>
+            `;
+            feedList.insertBefore(newItem, feedList.firstChild);
+        }
+
+        // 초기화
+        updateTime();
+        setInterval(updateTime, 30000);
+    </script>
+</body>
+</html>
