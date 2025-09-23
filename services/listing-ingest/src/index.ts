@@ -28,6 +28,50 @@ const BITHUMB_ENDPOINTS = [
   "https://capi.bithumb.com/public/board/5",
 ];
 
+const LISTING_KEYWORD_PATTERNS: RegExp[] = [
+  /상장(?!\s*폐지)/i,
+  /거래\s*지원/i,
+  /listing/i,
+  /market\s*support/i,
+  /원화\s*마켓/i,
+  /usdt\s*마켓/i,
+  /신규\s*(코인)?\s*상장/i,
+];
+
+const LISTING_NEGATIVE_PATTERNS: RegExp[] = [
+  /상장\s*폐지/i,
+  /거래\s*지원\s*종료/i,
+  /거래\s*종료/i,
+  /유의\s*종목/i,
+  /delisting/i,
+  /suspension/i,
+];
+
+const UPBIT_CATEGORY_KEYS = [
+  "category",
+  "categoryName",
+  "noticeType",
+  "notice_type",
+  "type",
+  "noticeCategory",
+];
+
+const BITHUMB_CATEGORY_KEYS = [
+  "menuCd",
+  "menuCode",
+  "menuNm",
+  "menuName",
+  "category",
+  "categoryNm",
+  "boardCd",
+  "boardType",
+  "boardName",
+  "noticeType",
+  "noticeCode",
+];
+
+const TAG_KEYS = ["tags", "tagNames", "tag_names", "hashTags", "hash_tags"];
+
 class ListingIngestor {
   private readonly seen: Record<ListingSource, Set<string>> = {
     UPBIT: new Set<string>(),
@@ -63,7 +107,7 @@ class ListingIngestor {
   private async pollUpbit() {
     try {
       const response = await axios.get(UPBIT_ENDPOINT, {
-        params: { page: 1, per_page: 30, is_pinned: false },
+        params: { page: 1, per_page: 30, is_pinned: false, category: "listing" },
         timeout: 7_000,
         headers: { "User-Agent": "coin-sangjang-listing-ingestor/1.0" },
       });
@@ -79,7 +123,8 @@ class ListingIngestor {
         if (!title) {
           continue;
         }
-        if (!this.isListingNotice(title, notice.category ?? notice.tags)) {
+        const normalizedNotice = { ...notice, title };
+        if (!this.isListingNotice("UPBIT", normalizedNotice)) {
           this.seen.UPBIT.add(id);
           continue;
         }
@@ -147,7 +192,8 @@ class ListingIngestor {
           if (!title) {
             continue;
           }
-          if (!this.isListingNotice(title, notice.category ?? notice.menuCd)) {
+          const normalizedNotice = { ...notice, title };
+          if (!this.isListingNotice("BITHUMB", normalizedNotice)) {
             this.seen.BITHUMB.add(id);
             continue;
           }
@@ -259,25 +305,89 @@ class ListingIngestor {
     return undefined;
   }
 
-  private isListingNotice(title: string, category: unknown) {
-    const lowered = title.toLowerCase();
-    const keywords = ["상장", "거래지원", "원화마켓", "usdt", "listing"];
-    if (keywords.some((keyword) => lowered.includes(keyword))) {
-      return true;
+  private isListingNotice(
+    source: ListingSource,
+    notice: Record<string, unknown>,
+  ): boolean {
+    const candidates = new Set<string>();
+    const prime = (...values: unknown[]) => {
+      for (const value of values) {
+        for (const item of this.flattenStringValues(value)) {
+          candidates.add(item);
+        }
+      }
+    };
+
+    prime(
+      notice.title,
+      notice.subject,
+      notice.summary,
+      notice.body,
+      notice.content,
+      notice.description,
+    );
+
+    for (const key of source === "UPBIT" ? UPBIT_CATEGORY_KEYS : BITHUMB_CATEGORY_KEYS) {
+      prime((notice as Record<string, unknown>)[key]);
     }
-    if (typeof category === "string") {
-      const catLower = category.toLowerCase();
-      if (keywords.some((keyword) => catLower.includes(keyword))) {
+
+    for (const key of TAG_KEYS) {
+      prime((notice as Record<string, unknown>)[key]);
+    }
+
+    const title = this.flattenStringValues(notice.title).join(" ");
+    const body = this.flattenStringValues(notice.body ?? notice.content).join(" ");
+    if (title || body) {
+      prime(`${title} ${body}`.trim());
+    }
+
+    for (const candidate of candidates) {
+      if (this.matchesListingKeywords(candidate)) {
         return true;
       }
     }
-    if (Array.isArray(category)) {
-      return category.some((value) =>
-        typeof value === "string" &&
-        keywords.some((keyword) => value.toLowerCase().includes(keyword)),
-      );
-    }
+
     return false;
+  }
+
+  private matchesListingKeywords(text: string): boolean {
+    if (!text) {
+      return false;
+    }
+    const normalized = text.trim();
+    if (!normalized) {
+      return false;
+    }
+    if (LISTING_NEGATIVE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      return false;
+    }
+    return LISTING_KEYWORD_PATTERNS.some((pattern) => pattern.test(normalized));
+  }
+
+  private flattenStringValues(value: unknown): string[] {
+    if (value === null || value === undefined) {
+      return [];
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap((item) => this.flattenStringValues(item));
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return [String(value)];
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed ? [trimmed] : [];
+    }
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const keys = ["name", "label", "value", "title"];
+      const collected: string[] = [];
+      for (const key of keys) {
+        collected.push(...this.flattenStringValues(record[key]));
+      }
+      return collected;
+    }
+    return [];
   }
 
   private parseTimestamp(value: unknown) {

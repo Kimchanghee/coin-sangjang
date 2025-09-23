@@ -8,10 +8,13 @@ import { UsageGuideSection } from "./UsageGuideSection";
 import { RealtimeFeedPanel } from "./RealtimeFeedPanel";
 import { ApiKeysPanel } from "./ApiKeysPanel";
 import type { LandingCopy } from "@/i18n/content/types";
+import type { Locale } from "@/i18n/locales";
+
+const PRIMARY_LOCALES: Locale[] = ["ko", "ja", "en"];
 
 interface LandingPageProps {
   copy: LandingCopy;
-  locale: string;
+  locale: Locale;
 }
 
 export function LandingPage({ copy, locale }: LandingPageProps) {
@@ -27,7 +30,12 @@ export function LandingPage({ copy, locale }: LandingPageProps) {
   );
 
   return (
-    <ResponsiveShell banner={banner} sidebar={sidebar}>
+    <ResponsiveShell
+      banner={banner}
+      sidebar={sidebar}
+      locale={locale}
+      switchableLocales={PRIMARY_LOCALES}
+    >
       <HeroSection title={copy.heroTitle} subtitle={copy.heroSubtitle} ctaLabel={copy.ctaLabel} />
       <FeatureList title={copy.featuresTitle} items={copy.features} />
       <UsageGuideSection title={copy.usageGuideTitle} copy={copy.usageGuide} />
