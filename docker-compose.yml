@@ -1,0 +1,171 @@
+# ===================================
+# 파일 경로: ./docker-compose.yml (프로젝트 루트)
+# 파일 타입: 새로 생성
+# ===================================
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: coin-sangjang-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: StrongPassword123!
+      POSTGRES_DB: coin_sangjang
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - coin-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: coin-sangjang-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - coin-network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API Server
+  backend:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+    container_name: coin-sangjang-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    ports:
+      - "3001:3001"
+      - "3002:3002"
+    networks:
+      - coin-network
+    volumes:
+      - ./backend:/app/backend
+      - backend_logs:/app/logs
+    command: sh -c "npm run migration:run --workspace backend && npm run start:prod --workspace backend"
+
+  # Frontend Next.js Server
+  frontend:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.frontend
+    container_name: coin-sangjang-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    env_file:
+      - ./frontend/.env.local
+    ports:
+      - "3000:3000"
+    networks:
+      - coin-network
+    volumes:
+      - ./frontend:/app/frontend
+
+  # Listing Ingest Worker
+  listing-worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.worker
+    container_name: coin-sangjang-listing-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    networks:
+      - coin-network
+    volumes:
+      - ./services/listing-ingest:/app/services/listing-ingest
+      - worker_logs:/app/logs
+    command: npm run start --workspace services/listing-ingest
+
+  # Trade Orchestrator
+  trade-orchestrator:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.worker
+    container_name: coin-sangjang-trade-orchestrator
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    networks:
+      - coin-network
+    volumes:
+      - ./services/trade-orchestrator:/app/services/trade-orchestrator
+      - orchestrator_logs:/app/logs
+    command: npm run start --workspace services/trade-orchestrator
+
+  # Risk Manager
+  risk-manager:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.worker
+    container_name: coin-sangjang-risk-manager
+    restart: unless-stopped
+    depends_on:
+      - redis
+    env_file:
+      - ./backend/.env
+    networks:
+      - coin-network
+    volumes:
+      - ./services/risk-manager:/app/services/risk-manager
+      - risk_logs:/app/logs
+    command: npm run start --workspace services/risk-manager
+
+networks:
+  coin-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_logs:
+    driver: local
+  worker_logs:
+    driver: local
+  orchestrator_logs:
+    driver: local
+  risk_logs:
+    driver: local
