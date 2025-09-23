@@ -27,17 +27,13 @@ export function LanguageSwitcher({
     return null;
   }
 
-  const safePathname = pathname || "/";
+  const safePathname = pathname ?? "/";
   const segments = safePathname.split("/").filter(Boolean);
   const potentialLocale = segments[0];
   const matchesKnownLocale = locales.includes(potentialLocale as Locale);
   const restSegments = matchesKnownLocale ? segments.slice(1) : segments;
   const suffix = restSegments.join("/");
-
-  const resolveHref = (locale: Locale): Route => {
-    const localizedPath = `/${[locale, suffix].filter(Boolean).join("/")}`;
-    return (localizedPath || "/") as Route;
-  };
+  const normalizedPath = (suffix ? `/${suffix}` : "/") as Route;
 
   return (
     <nav
@@ -47,12 +43,12 @@ export function LanguageSwitcher({
       {visibleLocales.map((locale) => {
         const isActive = locale === currentLocale;
         const label = localeLabels[locale];
-        const href = resolveHref(locale);
 
         return (
           <Link
             key={locale}
-            href={href}
+            href={normalizedPath}
+            locale={locale}
             aria-current={isActive ? "page" : undefined}
             className={`rounded-full px-3 py-1 font-medium transition ${
               isActive
