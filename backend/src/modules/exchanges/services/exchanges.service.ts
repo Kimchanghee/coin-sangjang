@@ -5,7 +5,6 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
 import { ExchangeAccount } from '../entities/exchange-account.entity';
-import { CreateExchangeAccountDto } from '../dto/create-exchange-account.dto';
 import { UpdateExchangeAccountDto } from '../dto/update-exchange-account.dto';
 import { UpsertExchangeAccountDto } from '../dto/upsert-exchange-account.dto';
 import {
@@ -112,6 +111,7 @@ export class ExchangesService {
         apiKeyId,
         apiKeySecret,
         passphrase,
+        mode,
       );
 
       response.connected = connected;
@@ -204,11 +204,13 @@ export class ExchangesService {
       ? this.encryptData(passphrase)
       : undefined;
 
+    const mode = createDto.mode ?? DEFAULT_NETWORK_MODE;
     const isValid = await this.validateApiKeys(
       exchange,
       apiKeyId,
       apiKeySecret,
       passphrase,
+      mode,
     );
 
     if (!isValid) {
@@ -218,7 +220,7 @@ export class ExchangesService {
     const account = this.exchangeAccountRepository.create({
       userId,
       exchange,
-      mode: createDto.mode ?? DEFAULT_NETWORK_MODE,
+      mode,
       apiKeyId: encryptedApiKeyId,
       apiKeySecret: encryptedApiKeySecret,
       passphrase: encryptedPassphrase,
@@ -318,9 +320,11 @@ export class ExchangesService {
     const nextPassphrase = hasPassphraseUpdate
       ? this.coerceCredentialInput(updateDto.passphrase)
       : undefined;
-    const shouldValidateKeys = UpdateExchangeAccountDto.hasCredentialChanges(
-      updateDto as UpdateExchangeAccountDto,
-    );
+    const nextMode = updateDto.mode ?? account.mode;
+    const shouldValidateKeys =
+      UpdateExchangeAccountDto.hasCredentialChanges(
+        updateDto as UpdateExchangeAccountDto,
+      ) || nextMode !== account.mode;
 
     if (shouldValidateKeys) {
       const currentApiKeyId = this.requireCredential(
@@ -346,6 +350,7 @@ export class ExchangesService {
         apiKeyId,
         apiKeySecret,
         passphrase,
+        nextMode,
       );
 
       if (!isValid) {
@@ -365,9 +370,7 @@ export class ExchangesService {
       }
     }
 
-    if (updateDto.mode) {
-      account.mode = updateDto.mode;
-    }
+    account.mode = nextMode;
     if (typeof updateDto.defaultLeverage === 'number') {
       account.defaultLeverage = updateDto.defaultLeverage;
     }
@@ -407,24 +410,31 @@ export class ExchangesService {
     apiKeyId: string,
     apiKeySecret: string,
     passphrase?: string,
+    mode: NetworkMode = DEFAULT_NETWORK_MODE,
   ): Promise<boolean> {
     const normalizedExchange = this.normalizeExchangeSlug(exchange);
 
     try {
       switch (normalizedExchange) {
         case ExchangeType.BINANCE:
-          return await this.validateBinanceKeys(apiKeyId, apiKeySecret);
+          return await this.validateBinanceKeys(apiKeyId, apiKeySecret, mode);
         case ExchangeType.BYBIT:
-          return await this.validateBybitKeys(apiKeyId, apiKeySecret);
+          return await this.validateBybitKeys(apiKeyId, apiKeySecret, mode);
         case ExchangeType.OKX:
-          return await this.validateOkxKeys(apiKeyId, apiKeySecret, passphrase);
+          return await this.validateOkxKeys(
+            apiKeyId,
+            apiKeySecret,
+            passphrase,
+            mode,
+          );
         case ExchangeType.GATEIO:
-          return await this.validateGateKeys(apiKeyId, apiKeySecret);
+          return await this.validateGateKeys(apiKeyId, apiKeySecret, mode);
         case ExchangeType.BITGET:
           return await this.validateBitgetKeys(
             apiKeyId,
             apiKeySecret,
             passphrase,
+            mode,
           );
         default:
           break;
@@ -443,6 +453,7 @@ export class ExchangesService {
   private async validateBinanceKeys(
     apiKeyId: string,
     apiKeySecret: string,
+    mode: NetworkMode,
   ): Promise<boolean> {
     const timestamp = Date.now();
     const queryString = `timestamp=${timestamp}`;
@@ -451,7 +462,13 @@ export class ExchangesService {
       .update(queryString)
       .digest('hex');
 
-    const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
+    const baseUrl =
+      mode === NetworkMode.TESTNET
+        ? (this.configService.get<string>('BINANCE_SPOT_TESTNET_REST') ??
+          'https://testnet.binance.vision')
+        : (this.configService.get<string>('BINANCE_SPOT_REST') ??
+          'https://api.binance.com');
+    const url = `${baseUrl}/api/v3/account?${queryString}&signature=${signature}`;
 
     try {
       const response = await fetch(url, {
@@ -474,6 +491,7 @@ export class ExchangesService {
   private async validateBybitKeys(
     apiKeyId: string,
     apiKeySecret: string,
+    mode: NetworkMode,
   ): Promise<boolean> {
     const timestamp = Date.now();
     const recvWindow = 5000;
@@ -484,7 +502,13 @@ export class ExchangesService {
       .update(queryString)
       .digest('hex');
 
-    const url = `https://api.bybit.com/v5/account/wallet-balance?${queryString}&sign=${signature}`;
+    const baseUrl =
+      mode === NetworkMode.TESTNET
+        ? (this.configService.get<string>('BYBIT_TESTNET_REST') ??
+          'https://api-testnet.bybit.com')
+        : (this.configService.get<string>('BYBIT_REST') ??
+          'https://api.bybit.com');
+    const url = `${baseUrl}/v5/account/wallet-balance?${queryString}&sign=${signature}`;
 
     try {
       const response = await fetch(url, {
@@ -506,6 +530,7 @@ export class ExchangesService {
     apiKeyId: string,
     apiKeySecret: string,
     passphrase?: string,
+    mode: NetworkMode = DEFAULT_NETWORK_MODE,
   ): Promise<boolean> {
     const timestamp = new Date().toISOString();
     const method = 'GET';
@@ -517,7 +542,9 @@ export class ExchangesService {
       .update(preSign)
       .digest('base64');
 
-    const url = `https://www.okx.com${requestPath}`;
+    const baseUrl =
+      this.configService.get<string>('OKX_REST') ?? 'https://www.okx.com';
+    const url = `${baseUrl}${requestPath}`;
 
     // 헤더 객체를 미리 구성
     const headers: Record<string, string> = {
@@ -530,6 +557,10 @@ export class ExchangesService {
     // passphrase가 있을 때만 헤더에 추가
     if (passphrase) {
       headers['OK-ACCESS-PASSPHRASE'] = passphrase;
+    }
+
+    if (mode === NetworkMode.TESTNET) {
+      headers['x-simulated-trading'] = '1';
     }
 
     try {
@@ -552,6 +583,7 @@ export class ExchangesService {
   private async validateGateKeys(
     apiKeyId: string,
     apiKeySecret: string,
+    mode: NetworkMode,
   ): Promise<boolean> {
     const timestamp = Math.floor(Date.now() / 1000);
     const method = 'GET';
@@ -565,7 +597,13 @@ export class ExchangesService {
       .update(preSign)
       .digest('hex');
 
-    const url = `https://api.gateio.ws${requestPath}`;
+    const baseUrl =
+      mode === NetworkMode.TESTNET
+        ? (this.configService.get<string>('GATEIO_TESTNET_REST') ??
+          'https://fx-api-testnet.gateio.ws')
+        : (this.configService.get<string>('GATEIO_REST') ??
+          'https://api.gateio.ws');
+    const url = `${baseUrl}${requestPath}`;
 
     try {
       const response = await fetch(url, {
@@ -592,6 +630,7 @@ export class ExchangesService {
     apiKeyId: string,
     apiKeySecret: string,
     passphrase?: string,
+    mode: NetworkMode = DEFAULT_NETWORK_MODE,
   ): Promise<boolean> {
     const timestamp = Date.now().toString();
     const method = 'GET';
@@ -603,7 +642,13 @@ export class ExchangesService {
       .update(preSign)
       .digest('base64');
 
-    const url = `https://api.bitget.com${requestPath}`;
+    const baseUrl =
+      mode === NetworkMode.TESTNET
+        ? (this.configService.get<string>('BITGET_TESTNET_REST') ??
+          'https://api-testnet.bitget.com')
+        : (this.configService.get<string>('BITGET_REST') ??
+          'https://api.bitget.com');
+    const url = `${baseUrl}${requestPath}`;
 
     // 헤더 객체를 미리 구성
     const headers: Record<string, string> = {
@@ -669,24 +714,37 @@ export class ExchangesService {
           apiKeyId,
           apiKeySecret,
           orderData,
+          account.mode,
         );
       case ExchangeType.BYBIT:
-        return await this.executeBybitOrder(apiKeyId, apiKeySecret, orderData);
+        return await this.executeBybitOrder(
+          apiKeyId,
+          apiKeySecret,
+          orderData,
+          account.mode,
+        );
       case ExchangeType.OKX:
         return await this.executeOkxOrder(
           apiKeyId,
           apiKeySecret,
           passphrase,
           orderData,
+          account.mode,
         );
       case ExchangeType.GATEIO:
-        return await this.executeGateOrder(apiKeyId, apiKeySecret, orderData);
+        return await this.executeGateOrder(
+          apiKeyId,
+          apiKeySecret,
+          orderData,
+          account.mode,
+        );
       case ExchangeType.BITGET:
         return await this.executeBitgetOrder(
           apiKeyId,
           apiKeySecret,
           passphrase,
           orderData,
+          account.mode,
         );
       default:
         throw new BadRequestException(`지원하지 않는 거래소: ${exchangeType}`);
@@ -700,6 +758,7 @@ export class ExchangesService {
     apiKeyId: string,
     apiKeySecret: string,
     orderData: OrderRequest,
+    mode: NetworkMode,
   ): Promise<any> {
     const timestamp = Date.now();
     const params: Record<string, string | number | boolean | undefined> = {
@@ -721,7 +780,13 @@ export class ExchangesService {
       .update(queryString)
       .digest('hex');
 
-    const url = `https://api.binance.com/api/v3/order?${queryString}&signature=${signature}`;
+    const baseUrl =
+      mode === NetworkMode.TESTNET
+        ? (this.configService.get<string>('BINANCE_SPOT_TESTNET_REST') ??
+          'https://testnet.binance.vision')
+        : (this.configService.get<string>('BINANCE_SPOT_REST') ??
+          'https://api.binance.com');
+    const url = `${baseUrl}/api/v3/order?${queryString}&signature=${signature}`;
 
     try {
       const response = await fetch(url, {
@@ -745,6 +810,7 @@ export class ExchangesService {
     apiKeyId: string,
     apiKeySecret: string,
     orderData: OrderRequest,
+    mode: NetworkMode,
   ): Promise<any> {
     const timestamp = Date.now();
     const params: Record<string, string | number | boolean | undefined> = {
@@ -775,7 +841,13 @@ export class ExchangesService {
       .update(queryString)
       .digest('hex');
 
-    const url = `https://api.bybit.com/v5/order/create`;
+    const baseUrl =
+      mode === NetworkMode.TESTNET
+        ? (this.configService.get<string>('BYBIT_TESTNET_REST') ??
+          'https://api-testnet.bybit.com')
+        : (this.configService.get<string>('BYBIT_REST') ??
+          'https://api.bybit.com');
+    const url = `${baseUrl}/v5/order/create`;
 
     try {
       const response = await fetch(url, {
@@ -801,6 +873,7 @@ export class ExchangesService {
     apiKeySecret: string,
     passphrase: string | undefined,
     orderData: OrderRequest,
+    mode: NetworkMode,
   ): Promise<any> {
     const timestamp = new Date().toISOString();
     const method = 'POST';
@@ -821,7 +894,9 @@ export class ExchangesService {
       .update(preSign)
       .digest('base64');
 
-    const url = `https://www.okx.com${requestPath}`;
+    const baseUrl =
+      this.configService.get<string>('OKX_REST') ?? 'https://www.okx.com';
+    const url = `${baseUrl}${requestPath}`;
 
     // 헤더 객체를 미리 구성
     const headers: Record<string, string> = {
@@ -834,6 +909,10 @@ export class ExchangesService {
     // passphrase가 있을 때만 헤더에 추가
     if (passphrase) {
       headers['OK-ACCESS-PASSPHRASE'] = passphrase;
+    }
+
+    if (mode === NetworkMode.TESTNET) {
+      headers['x-simulated-trading'] = '1';
     }
 
     try {
@@ -857,6 +936,7 @@ export class ExchangesService {
     apiKeyId: string,
     apiKeySecret: string,
     orderData: OrderRequest,
+    mode: NetworkMode,
   ): Promise<any> {
     const timestamp = Math.floor(Date.now() / 1000);
     const method = 'POST';
@@ -881,7 +961,13 @@ export class ExchangesService {
       .update(preSign)
       .digest('hex');
 
-    const url = `https://api.gateio.ws${requestPath}`;
+    const baseUrl =
+      mode === NetworkMode.TESTNET
+        ? (this.configService.get<string>('GATEIO_TESTNET_REST') ??
+          'https://fx-api-testnet.gateio.ws')
+        : (this.configService.get<string>('GATEIO_REST') ??
+          'https://api.gateio.ws');
+    const url = `${baseUrl}${requestPath}`;
 
     try {
       const response = await fetch(url, {
@@ -910,6 +996,7 @@ export class ExchangesService {
     apiKeySecret: string,
     passphrase: string | undefined,
     orderData: OrderRequest,
+    mode: NetworkMode,
   ): Promise<any> {
     const timestamp = Date.now().toString();
     const method = 'POST';
@@ -929,7 +1016,13 @@ export class ExchangesService {
       .update(preSign)
       .digest('base64');
 
-    const url = `https://api.bitget.com${requestPath}`;
+    const baseUrl =
+      mode === NetworkMode.TESTNET
+        ? (this.configService.get<string>('BITGET_TESTNET_REST') ??
+          'https://api-testnet.bitget.com')
+        : (this.configService.get<string>('BITGET_REST') ??
+          'https://api.bitget.com');
+    const url = `${baseUrl}${requestPath}`;
 
     // 헤더 객체를 미리 구성
     const headers: Record<string, string> = {
@@ -1151,6 +1244,7 @@ export class ExchangesService {
       apiKeyId,
       apiKeySecret,
       passphrase,
+      account.mode,
     );
   }
 }
