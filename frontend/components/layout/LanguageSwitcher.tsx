@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { defaultLocale, localeLabels, locales, type Locale } from "@/i18n/locales";
+import { localeLabels, locales, type Locale } from "@/i18n/locales";
 
 interface LanguageSwitcherProps {
   currentLocale: Locale;
@@ -33,13 +33,8 @@ export function LanguageSwitcher({
   const matchesKnownLocale = locales.includes(potentialLocale as Locale);
   const restSegments = matchesKnownLocale ? segments.slice(1) : segments;
   const suffix = restSegments.join("/");
-  const normalizedPath = suffix ? `/${suffix}` : "/";
 
   const resolveHref = (locale: Locale): Route => {
-    if (locale === defaultLocale) {
-      return (normalizedPath || "/") as Route;
-    }
-
     const localizedPath = `/${[locale, suffix].filter(Boolean).join("/")}`;
     return (localizedPath || "/") as Route;
   };
