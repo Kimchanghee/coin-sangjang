@@ -9,7 +9,7 @@ interface LanguageSwitcherProps {
   focusLocales?: Locale[];
 }
 
-const DEFAULT_FOCUS_LOCALES: Locale[] = ["ko", "ja", "en"];
+const DEFAULT_FOCUS_LOCALES: Locale[] = ["ko", "en", "ja", "zh-cn", "vi"];
 
 export function LanguageSwitcher({
   currentLocale,

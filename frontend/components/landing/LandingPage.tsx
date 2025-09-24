@@ -10,7 +10,7 @@ import { ApiKeysPanel } from "./ApiKeysPanel";
 import type { LandingCopy } from "@/i18n/content/types";
 import type { Locale } from "@/i18n/locales";
 
-const PRIMARY_LOCALES: Locale[] = ["ko", "ja", "en"];
+const PRIMARY_LOCALES: Locale[] = ["ko", "en", "ja", "zh-cn", "vi"];
 
 interface LandingPageProps {
   copy: LandingCopy;
