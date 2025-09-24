@@ -124,4 +124,33 @@ export const enCopy: LandingCopy = {
     totalLabel: "Total",
     availableLabel: "Available",
   },
+  collectors: {
+    title: "Listing collectors",
+    description:
+      "Monitor Korean exchange announcement feeds and make sure the orchestrator receives every listing signal.",
+    upbitLabel: "Upbit notices",
+    bithumbLabel: "Bithumb notices",
+    orchestratorLabel: "Trade orchestrator",
+    lastSeenLabel: "Last seen",
+    noSignalsLabel: "No recent announcements",
+    idleLabel: "Idle",
+    activeLabel: "Receiving",
+    recentSymbolsLabel: "Latest detected symbols",
+  },
+  executionPreview: {
+    title: "Exchange readiness checker",
+    description:
+      "Check whether supported exchanges expose the requested symbol on spot or futures before the automation enters trades.",
+    placeholder: "e.g. APT or APTUSDT",
+    buttonLabel: "Check availability",
+    testnetLabel: "Testnet",
+    mainnetLabel: "Mainnet",
+    modeToggle: "Prefer testnet",
+    loadingLabel: "Querying exchanges…",
+    readyLabel: "Ready",
+    notReadyLabel: "Unavailable",
+    errorLabel: "Failed to load diagnostics.",
+    updatedLabel: "Checked",
+    suggestionsLabel: "Recently detected symbols",
+  },
 };

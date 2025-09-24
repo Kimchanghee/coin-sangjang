@@ -115,4 +115,33 @@ export const koCopy: LandingCopy = {
     totalLabel: "총액",
     availableLabel: "사용 가능",
   },
+  collectors: {
+    title: "상장 수집 현황",
+    description:
+      "업비트·빗썸 공지 수집 파이프라인과 자동매매 오케스트레이터의 실시간 상태를 확인합니다.",
+    upbitLabel: "업비트 공지",
+    bithumbLabel: "빗썸 공지",
+    orchestratorLabel: "자동매매 오케스트레이터",
+    lastSeenLabel: "마지막 수신",
+    noSignalsLabel: "최근 수신 없음",
+    idleLabel: "대기 중",
+    activeLabel: "수신 중",
+    recentSymbolsLabel: "최근 감지 심볼",
+  },
+  executionPreview: {
+    title: "거래소 상장 확인 도구",
+    description:
+      "심볼을 입력하면 지원 거래소의 현물·선물 상장 여부를 즉시 조회해 자동 진입 가능 여부를 판단합니다.",
+    placeholder: "예: APT 또는 APTUSDT",
+    buttonLabel: "상장 여부 확인",
+    testnetLabel: "테스트넷",
+    mainnetLabel: "메인넷",
+    modeToggle: "테스트넷 우선",
+    loadingLabel: "거래소 조회 중...",
+    readyLabel: "진입 가능",
+    notReadyLabel: "진입 불가",
+    errorLabel: "진단 정보를 불러오지 못했습니다.",
+    updatedLabel: "확인 시각",
+    suggestionsLabel: "최근 감지 심볼",
+  },
 };

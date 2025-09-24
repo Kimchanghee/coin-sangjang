@@ -7,7 +7,7 @@ export const zhCnCopy: LandingCopy = {
   heroSubtitle:
     "Coin-Sangjang 实时监控 Upbit 和 Bithumb 公告，并在 Binance、Bybit、OKX、Gate.io 与 Bitget 上自动开仓。",
   ctaLabel: "从测试网开始",
-  tradeForm: {
+tradeForm: {
     ...enCopy.tradeForm,
     sectionTitle: "交易参数设置",
     leverageLabel: "杠杆倍率",
@@ -34,5 +34,34 @@ export const zhCnCopy: LandingCopy = {
     pendingNotice: "等待管理员审核...",
     successNotice: "申请已提交。",
     errorNotice: "提交失败，请稍后再试。",
+  },
+  collectors: {
+    ...enCopy.collectors!,
+    title: "上架收集状态",
+    description: "实时查看 Upbit 与 Bithumb 公告采集管道以及自动交易编排器的运行状态。",
+    upbitLabel: "Upbit 公告",
+    bithumbLabel: "Bithumb 公告",
+    orchestratorLabel: "交易编排器",
+    lastSeenLabel: "最新接收",
+    noSignalsLabel: "暂无公告",
+    idleLabel: "待机",
+    activeLabel: "接收中",
+    recentSymbolsLabel: "最近检测到的币种",
+  },
+  executionPreview: {
+    ...enCopy.executionPreview!,
+    title: "交易所上架检测",
+    description: "输入币种即可同时查询各大交易所现货/合约是否可用，确认自动入场条件。",
+    placeholder: "如：APT 或 APTUSDT",
+    buttonLabel: "检查可用性",
+    testnetLabel: "测试网",
+    mainnetLabel: "主网",
+    modeToggle: "优先使用测试网",
+    loadingLabel: "查询中...",
+    readyLabel: "可交易",
+    notReadyLabel: "暂不可用",
+    errorLabel: "无法获取诊断信息。",
+    updatedLabel: "检查时间",
+    suggestionsLabel: "最近检测的币种",
   },
 };
