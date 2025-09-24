@@ -1,68 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { LandingCopy } from "@/i18n/content/types";
-
-interface MarketSnapshot {
-  exchange: string;
-  available: boolean;
-  checkedAt?: string;
-  error?: string;
-}
-
-interface ListingEvent {
-  id?: string;
-  source: string;
-  symbol: string;
-  baseSymbol?: string;
-  announcedAt: string;
-  marketsSnapshot?: MarketSnapshot[];
-}
+import type { ListingEvent } from "@/types/listings";
 
 interface RealtimeFeedPanelProps {
   copy: LandingCopy;
   locale: string;
+  events: ListingEvent[];
+  connected: boolean;
 }
-
-const FALLBACK_EVENTS: ListingEvent[] = [
-  {
-    source: "UPBIT",
-    symbol: "BTCUSDT",
-    baseSymbol: "BTC",
-    announcedAt: new Date().toISOString(),
-    marketsSnapshot: [
-      {
-        exchange: "BINANCE",
-        available: true,
-        checkedAt: new Date().toISOString(),
-      },
-      {
-        exchange: "BYBIT",
-        available: true,
-        checkedAt: new Date().toISOString(),
-      },
-    ],
-  },
-  {
-    source: "BITHUMB",
-    symbol: "APTUSDT",
-    baseSymbol: "APT",
-    announcedAt: new Date().toISOString(),
-    marketsSnapshot: [
-      {
-        exchange: "BINANCE",
-        available: true,
-        checkedAt: new Date().toISOString(),
-      },
-      {
-        exchange: "OKX",
-        available: false,
-        checkedAt: new Date().toISOString(),
-        error: "Awaiting new listing window",
-      },
-    ],
-  },
-];
 
 const DEFAULT_AVAILABILITY_COPY = {
   coverageTitle: "Global derivatives coverage",
@@ -72,71 +19,13 @@ const DEFAULT_AVAILABILITY_COPY = {
   updatedLabel: "Checked",
 };
 
-export function RealtimeFeedPanel({ copy, locale }: RealtimeFeedPanelProps) {
-  const [events, setEvents] = useState<ListingEvent[]>(FALLBACK_EVENTS);
-  const [connected, setConnected] = useState(false);
+export function RealtimeFeedPanel({
+  copy,
+  locale,
+  events,
+  connected,
+}: RealtimeFeedPanelProps) {
   const availabilityCopy = copy.realtimeAvailability ?? DEFAULT_AVAILABILITY_COPY;
-
-  const apiBase = useMemo(
-    () => process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080/api",
-    [],
-  );
-
-  useEffect(() => {
-    let active = true;
-    const fetchRecent = async () => {
-      try {
-        const response = await fetch(`${apiBase}/listings/recent`);
-        if (!response.ok) {
-          throw new Error(`failed to fetch listings: ${response.status}`);
-        }
-        const data = (await response.json()) as ListingEvent[];
-        if (active && Array.isArray(data) && data.length > 0) {
-          setEvents(data);
-        }
-      } catch (error) {
-        console.warn("Failed to load recent listings", error);
-      }
-    };
-    void fetchRecent();
-    return () => {
-      active = false;
-    };
-  }, [apiBase]);
-
-  useEffect(() => {
-    const streamUrl = `${apiBase}/listings/stream`;
-    let source: EventSource | null = null;
-    try {
-      source = new EventSource(streamUrl, { withCredentials: false });
-      source.onopen = () => setConnected(true);
-      source.onerror = () => setConnected(false);
-      source.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data) as ListingEvent;
-          setEvents((prev) => {
-            const next = [payload, ...prev];
-            const unique = new Map<string, ListingEvent>();
-            for (const item of next) {
-              const key = item.id ?? `${item.source}-${item.symbol}-${item.announcedAt}`;
-              if (!unique.has(key)) {
-                unique.set(key, item);
-              }
-            }
-            return Array.from(unique.values()).slice(0, 20);
-          });
-        } catch (error) {
-          console.warn("Invalid SSE listing payload", error);
-        }
-      };
-    } catch (error) {
-      console.warn("EventSource unavailable", error);
-    }
-
-    return () => {
-      source?.close();
-    };
-  }, [apiBase]);
 
   const status = connected ? copy.realtimeStatusConnected : copy.realtimeStatusIdle;
 

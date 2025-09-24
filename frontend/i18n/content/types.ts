@@ -22,6 +22,8 @@ export interface TradeFormCopy {
   testnetToggle: string;
   autoTradeToggle: string;
   submitLabel: string;
+  savedMessage: string;
+  errorMessage: string;
 }
 
 export interface AdminCopy {
@@ -32,6 +34,8 @@ export interface AdminCopy {
   note: string;
   submit: string;
   pendingNotice: string;
+  successNotice: string;
+  errorNotice: string;
 }
 
 export interface BannerCopy {
@@ -71,6 +75,35 @@ export interface ApiKeysFormCopy {
   availableLabel: string;
 }
 
+export interface CollectorCopy {
+  title: string;
+  description: string;
+  upbitLabel: string;
+  bithumbLabel: string;
+  orchestratorLabel: string;
+  lastSeenLabel: string;
+  noSignalsLabel: string;
+  idleLabel: string;
+  activeLabel: string;
+  recentSymbolsLabel: string;
+}
+
+export interface ExecutionPreviewCopy {
+  title: string;
+  description: string;
+  placeholder: string;
+  buttonLabel: string;
+  testnetLabel: string;
+  mainnetLabel: string;
+  modeToggle: string;
+  loadingLabel: string;
+  readyLabel: string;
+  notReadyLabel: string;
+  errorLabel: string;
+  updatedLabel: string;
+  suggestionsLabel: string;
+}
+
 export interface LandingCopy {
   heroTitle: string;
   heroSubtitle: string;
@@ -89,4 +122,6 @@ export interface LandingCopy {
   apiKeysHelper: string;
   realtimeAvailability?: RealtimeAvailabilityCopy;
   apiKeysForm?: ApiKeysFormCopy;
+  collectors?: CollectorCopy;
+  executionPreview?: ExecutionPreviewCopy;
 }

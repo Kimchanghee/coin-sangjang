@@ -6,7 +6,6 @@
 import axios, { AxiosInstance } from 'axios';
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import * as crypto from 'crypto';
 import Redis from 'ioredis';
 
 interface UpbitNotice {
@@ -25,7 +24,7 @@ interface ListingEvent {
   url: string;
   timestamp: Date;
   type: 'new_listing' | 'delisting' | 'other';
-  rawData?: any;
+  rawData?: unknown;
 }
 
 export class UpbitCollector extends EventEmitter {
@@ -33,11 +32,11 @@ export class UpbitCollector extends EventEmitter {
   private apiClient: AxiosInstance;
   private noticeApiClient: AxiosInstance;
   private redis: Redis;
-  private lastCheckTime: Date;
   private checkInterval: NodeJS.Timer | null = null;
   private reconnectInterval: NodeJS.Timer | null = null;
   private processedNotices: Set<number> = new Set();
   private isRunning: boolean = false;
+  private checking = false;
 
   constructor(redisClient?: Redis) {
     super();
@@ -47,8 +46,6 @@ export class UpbitCollector extends EventEmitter {
       port: parseInt(process.env.REDIS_PORT || '6379'),
     });
 
-    this.lastCheckTime = new Date();
-    
     // API 클라이언트 초기화
     this.apiClient = axios.create({
       baseURL: process.env.UPBIT_API_URL || 'https://api.upbit.com',
@@ -93,10 +90,10 @@ export class UpbitCollector extends EventEmitter {
     // 초기 공지사항 체크
     await this.checkNotices();
     
-    // 30초마다 공지사항 체크
+    // 1초마다 공지사항 체크
     this.checkInterval = setInterval(() => {
-      this.checkNotices();
-    }, 30000);
+      void this.checkNotices();
+    }, 1000);
 
     // WebSocket 연결
     this.connectWebSocket();
@@ -130,7 +127,7 @@ export class UpbitCollector extends EventEmitter {
 
       this.ws.on('message', (data: Buffer) => {
         try {
-          const message = JSON.parse(data.toString());
+          JSON.parse(data.toString());
           // 필요시 실시간 데이터 처리
         } catch (error) {
           // Binary 데이터일 수 있음 (Upbit는 압축된 데이터 전송)
@@ -161,6 +158,11 @@ export class UpbitCollector extends EventEmitter {
   }
 
   async checkNotices() {
+    if (!this.isRunning || this.checking) {
+      return;
+    }
+
+    this.checking = true;
     try {
       console.log('[Upbit] Checking notices...');
       
@@ -216,6 +218,8 @@ export class UpbitCollector extends EventEmitter {
       }
     } catch (error) {
       console.error('[Upbit] Notice check error:', error);
+    } finally {
+      this.checking = false;
     }
   }
 
@@ -265,7 +269,7 @@ export class UpbitCollector extends EventEmitter {
         const matches = title.match(pattern);
         if (matches && matches.length > 0) {
           // 첫 번째 매치에서 심볼 추출
-          symbol = matches[0].replace(/[\(\)\[\]KRW-]/g, '').trim();
+          symbol = matches[0].replace(/[()[\]KRW-]/g, '').trim();
           if (symbol.length >= 2 && symbol.length <= 10) {
             break;
           }

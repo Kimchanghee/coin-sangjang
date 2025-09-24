@@ -30,6 +30,13 @@ type UpsertPayload = UpsertExchangeAccountDto & {
   metadata?: ExchangeAccountMetadata;
 };
 
+interface ExchangeMarketAvailability {
+  spot: boolean;
+  futures: boolean;
+  details: string[];
+  error?: string;
+}
+
 @Injectable()
 export class ExchangesService {
   private readonly logger = new Logger(ExchangesService.name);
@@ -138,7 +145,7 @@ export class ExchangesService {
   /**
    * 거래 실행 준비 (컨트롤러에서 사용)
    */
-  prepareExecution(
+  async prepareExecution(
     normalized: string | { symbol: string },
     options?: PrepareExecutionOptions,
   ): Promise<PrepareExecutionResult> {
@@ -146,25 +153,62 @@ export class ExchangesService {
       typeof normalized === 'string' ? normalized : normalized.symbol;
     const useTestnet = options?.useTestnet ?? false;
     const checkedAt = new Date().toISOString();
-    const diagnostics: ExchangeAvailabilityDiagnostic[] =
-      SUPPORTED_EXCHANGES.map((exchange) => ({
-        exchange,
-        ready: true,
-        available: true,
-        message: useTestnet
-          ? 'Testnet 환경에서 거래 준비 완료'
-          : 'Ready for trading',
-        checkedAt,
-      }));
 
-    const ready = diagnostics.some((d) => d.ready && d.available);
+    const diagnostics = await Promise.all(
+      SUPPORTED_EXCHANGES.map(
+        async (exchange): Promise<ExchangeAvailabilityDiagnostic> => {
+          try {
+            const availability = await this.checkExchangeMarketAvailability(
+              exchange,
+              symbol,
+              { useTestnet },
+            );
 
-    return Promise.resolve({
+            const messageParts = [
+              availability.spot ? 'Spot: available' : 'Spot: unavailable',
+              availability.futures
+                ? 'Futures: available'
+                : 'Futures: unavailable',
+            ];
+
+            if (availability.details.length > 0) {
+              messageParts.push(...availability.details);
+            }
+
+            return {
+              exchange,
+              ready: availability.spot || availability.futures,
+              available: availability.spot || availability.futures,
+              message: messageParts.join(' | '),
+              checkedAt,
+              error: availability.error,
+            };
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : 'Unknown availability error';
+            return {
+              exchange,
+              ready: false,
+              available: false,
+              message: 'Failed to query exchange availability',
+              checkedAt,
+              error: message,
+            };
+          }
+        },
+      ),
+    );
+
+    const ready = diagnostics.some((diagnostic) => diagnostic.available);
+
+    return {
       symbol,
       diagnostics,
       ready,
       useTestnet,
-    });
+    };
   }
 
   /**
@@ -248,6 +292,25 @@ export class ExchangesService {
         'createdAt',
         'updatedAt',
       ],
+    });
+  }
+
+  async listActiveAccountsByExchange(
+    exchange: SupportedExchangeInput,
+    mode?: NetworkMode,
+  ): Promise<ExchangeAccount[]> {
+    const normalized = this.normalizeExchangeSlug(exchange);
+    const where: Partial<ExchangeAccount> = {
+      exchange: normalized,
+      isActive: true,
+    };
+
+    if (mode) {
+      where.mode = mode;
+    }
+
+    return this.exchangeAccountRepository.find({
+      where,
     });
   }
 
@@ -1048,6 +1111,360 @@ export class ExchangesService {
     } catch (error) {
       this.logger.error(`Bitget 주문 실행 오류: ${error.message}`);
       throw error;
+    }
+  }
+
+  private async checkExchangeMarketAvailability(
+    exchange: ExchangeType,
+    symbol: string,
+    options: { useTestnet: boolean },
+  ): Promise<ExchangeMarketAvailability> {
+    switch (exchange) {
+      case ExchangeType.BINANCE:
+        return this.checkBinanceMarkets(symbol, options.useTestnet);
+      case ExchangeType.BYBIT:
+        return this.checkBybitMarkets(symbol, options.useTestnet);
+      case ExchangeType.GATEIO:
+        return this.checkGateMarkets(symbol, options.useTestnet);
+      case ExchangeType.OKX:
+        return this.checkOkxMarkets(symbol, options.useTestnet);
+      case ExchangeType.BITGET:
+        return this.checkBitgetMarkets(symbol, options.useTestnet);
+      default:
+        return {
+          spot: false,
+          futures: false,
+          details: [],
+          error: 'Unsupported exchange',
+        };
+    }
+  }
+
+  private async checkBinanceMarkets(symbol: string, useTestnet: boolean) {
+    const spotEndpoint =
+      (useTestnet
+        ? this.configService.get<string>('BINANCE_SPOT_TESTNET_REST')
+        : this.configService.get<string>('BINANCE_SPOT_REST')) ??
+      (useTestnet
+        ? 'https://testnet.binance.vision'
+        : 'https://api.binance.com');
+    const futuresEndpoint =
+      (useTestnet
+        ? this.configService.get<string>('BINANCE_FUTURES_TESTNET_REST')
+        : this.configService.get<string>('BINANCE_FUTURES_REST')) ??
+      (useTestnet
+        ? 'https://testnet.binancefuture.com'
+        : 'https://fapi.binance.com');
+
+    const [spotResult, futuresResult] = await Promise.allSettled([
+      this.lookupBinanceExchangeInfo(
+        `${spotEndpoint}/api/v3/exchangeInfo`,
+        symbol,
+      ),
+      this.lookupBinanceExchangeInfo(
+        `${futuresEndpoint}/fapi/v1/exchangeInfo`,
+        symbol,
+      ),
+    ]);
+
+    const details: string[] = [];
+    let error: string | undefined;
+
+    if (spotResult.status === 'rejected') {
+      details.push('Spot lookup failed');
+      error = this.stringifyError(spotResult.reason);
+    }
+    if (futuresResult.status === 'rejected') {
+      details.push('Futures lookup failed');
+      error = this.stringifyError(futuresResult.reason);
+    }
+
+    return {
+      spot: spotResult.status === 'fulfilled' ? spotResult.value : false,
+      futures:
+        futuresResult.status === 'fulfilled' ? futuresResult.value : false,
+      details,
+      error,
+    };
+  }
+
+  private async lookupBinanceExchangeInfo(endpoint: string, symbol: string) {
+    const url = `${endpoint}?symbol=${encodeURIComponent(symbol)}`;
+    const response = await this.fetchWithTimeout(url, undefined, 4000);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = await this.safeJson(response);
+    const symbols: any[] = payload?.symbols ?? [];
+    return symbols.some((item) => item.symbol === symbol);
+  }
+
+  private async checkBybitMarkets(symbol: string, useTestnet: boolean) {
+    const baseUrl =
+      (useTestnet
+        ? this.configService.get<string>('BYBIT_TESTNET_REST')
+        : this.configService.get<string>('BYBIT_REST')) ??
+      (useTestnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com');
+
+    const [spotResult, futuresResult] = await Promise.allSettled([
+      this.queryBybitInstrument(baseUrl, 'spot', symbol),
+      this.queryBybitInstrument(baseUrl, 'linear', symbol),
+    ]);
+
+    const details: string[] = [];
+    let error: string | undefined;
+    if (spotResult.status === 'rejected') {
+      details.push('Spot probe failed');
+      error = this.stringifyError(spotResult.reason);
+    }
+    if (futuresResult.status === 'rejected') {
+      details.push('Futures probe failed');
+      error = this.stringifyError(futuresResult.reason);
+    }
+
+    return {
+      spot: spotResult.status === 'fulfilled' ? spotResult.value : false,
+      futures:
+        futuresResult.status === 'fulfilled' ? futuresResult.value : false,
+      details,
+      error,
+    };
+  }
+
+  private async queryBybitInstrument(
+    baseUrl: string,
+    category: 'spot' | 'linear',
+    symbol: string,
+  ) {
+    const url = `${baseUrl}/v5/market/instruments-info?category=${category}&symbol=${encodeURIComponent(
+      symbol,
+    )}`;
+    const response = await this.fetchWithTimeout(url, undefined, 4000);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await this.safeJson(response);
+    if (data?.retCode !== 0) {
+      return false;
+    }
+    const list = data?.result?.list;
+    return Array.isArray(list) && list.length > 0;
+  }
+
+  private async checkGateMarkets(symbol: string, useTestnet: boolean) {
+    const baseSymbol = this.getBaseSymbol(symbol);
+    const pair = `${baseSymbol}_USDT`;
+    const baseUrl =
+      (useTestnet
+        ? this.configService.get<string>('GATEIO_TESTNET_REST')
+        : this.configService.get<string>('GATEIO_REST')) ??
+      (useTestnet
+        ? 'https://fx-api-testnet.gateio.ws'
+        : 'https://api.gateio.ws');
+
+    const [spotResponse, futuresResponse] = await Promise.allSettled([
+      this.fetchWithTimeout(
+        `${baseUrl}/api/v4/spot/currency_pairs/${pair}`,
+        undefined,
+        4000,
+      ),
+      this.fetchWithTimeout(
+        `${baseUrl}/api/v4/futures/usdt/contracts/${pair}`,
+        undefined,
+        4000,
+      ),
+    ]);
+
+    const details: string[] = [];
+    let error: string | undefined;
+
+    if (spotResponse.status === 'rejected') {
+      details.push('Spot lookup failed');
+      error = this.stringifyError(spotResponse.reason);
+    }
+    if (futuresResponse.status === 'rejected') {
+      details.push('Perpetual lookup failed');
+      error = this.stringifyError(futuresResponse.reason);
+    }
+
+    return {
+      spot: spotResponse.status === 'fulfilled' ? spotResponse.value.ok : false,
+      futures:
+        futuresResponse.status === 'fulfilled'
+          ? futuresResponse.value.ok
+          : false,
+      details,
+      error,
+    };
+  }
+
+  private async checkOkxMarkets(symbol: string, useTestnet: boolean) {
+    const baseSymbol = this.getBaseSymbol(symbol);
+    const baseUrl =
+      this.configService.get<string>('OKX_REST') ?? 'https://www.okx.com';
+    const headers: Record<string, string> = {};
+    if (useTestnet) {
+      headers['x-simulated-trading'] = '1';
+    }
+
+    const [spotResult, swapResult] = await Promise.allSettled([
+      this.queryOkxInstrument(baseUrl, 'SPOT', `${baseSymbol}-USDT`, headers),
+      this.queryOkxInstrument(
+        baseUrl,
+        'SWAP',
+        `${baseSymbol}-USDT-SWAP`,
+        headers,
+      ),
+    ]);
+
+    const details: string[] = [];
+    let error: string | undefined;
+    if (spotResult.status === 'rejected') {
+      details.push('Spot instrument fetch failed');
+      error = this.stringifyError(spotResult.reason);
+    }
+    if (swapResult.status === 'rejected') {
+      details.push('Swap instrument fetch failed');
+      error = this.stringifyError(swapResult.reason);
+    }
+
+    return {
+      spot: spotResult.status === 'fulfilled' ? spotResult.value : false,
+      futures: swapResult.status === 'fulfilled' ? swapResult.value : false,
+      details,
+      error,
+    };
+  }
+
+  private async queryOkxInstrument(
+    baseUrl: string,
+    instType: string,
+    instId: string,
+    headers: Record<string, string>,
+  ) {
+    const url = `${baseUrl}/api/v5/public/instruments?instType=${instType}&instId=${encodeURIComponent(
+      instId,
+    )}`;
+    const response = await this.fetchWithTimeout(url, { headers }, 4000);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await this.safeJson(response);
+    const instruments = data?.data;
+    return Array.isArray(instruments) && instruments.length > 0;
+  }
+
+  private async checkBitgetMarkets(symbol: string, useTestnet: boolean) {
+    const baseSymbol = this.getBaseSymbol(symbol);
+    const composedSymbol = `${baseSymbol}USDT`;
+    const baseUrl =
+      (useTestnet
+        ? this.configService.get<string>('BITGET_TESTNET_REST')
+        : this.configService.get<string>('BITGET_REST')) ??
+      (useTestnet
+        ? 'https://api-testnet.bitget.com'
+        : 'https://api.bitget.com');
+
+    const [spotResult, futuresResult] = await Promise.allSettled([
+      this.queryBitgetEndpoint(
+        `${baseUrl}/api/v2/spot/public/trade-symbols?symbol=${encodeURIComponent(
+          composedSymbol,
+        )}`,
+      ),
+      this.queryBitgetEndpoint(
+        `${baseUrl}/api/mix/v1/market/contracts?productType=umcbl&symbol=${encodeURIComponent(
+          composedSymbol,
+        )}`,
+      ),
+    ]);
+
+    const details: string[] = [];
+    let error: string | undefined;
+    if (spotResult.status === 'rejected') {
+      details.push('Spot symbol check failed');
+      error = this.stringifyError(spotResult.reason);
+    }
+    if (futuresResult.status === 'rejected') {
+      details.push('Futures symbol check failed');
+      error = this.stringifyError(futuresResult.reason);
+    }
+
+    return {
+      spot: spotResult.status === 'fulfilled' ? spotResult.value : false,
+      futures:
+        futuresResult.status === 'fulfilled' ? futuresResult.value : false,
+      details,
+      error,
+    };
+  }
+
+  private async queryBitgetEndpoint(url: string) {
+    const response = await this.fetchWithTimeout(url, undefined, 4000);
+    if (!response.ok) {
+      if (response.status === 404) {
+        return false;
+      }
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await this.safeJson(response);
+    const list = data?.data ?? data?.result ?? [];
+    if (Array.isArray(list)) {
+      return list.length > 0;
+    }
+    if (typeof list === 'object' && list !== null) {
+      return Object.keys(list).length > 0;
+    }
+    return false;
+  }
+
+  private getBaseSymbol(symbol: string) {
+    if (typeof symbol !== 'string') {
+      return symbol;
+    }
+    const normalized = symbol.toUpperCase();
+    if (normalized.endsWith('USDT')) {
+      return normalized.slice(0, -4);
+    }
+    return normalized;
+  }
+
+  private async fetchWithTimeout(
+    url: string,
+    init?: RequestInit,
+    timeoutMs = 5000,
+  ) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...(init ?? {}), signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async safeJson(response: Response) {
+    try {
+      return await response.json();
+    } catch (error) {
+      this.logger.warn(
+        { url: response.url, err: this.stringifyError(error) },
+        'Failed to parse JSON response',
+      );
+      return null;
+    }
+  }
+
+  private stringifyError(input: unknown) {
+    if (input instanceof Error) {
+      return input.message;
+    }
+    if (typeof input === 'string') {
+      return input;
+    }
+    try {
+      return JSON.stringify(input);
+    } catch {
+      return String(input ?? 'unknown');
     }
   }
 

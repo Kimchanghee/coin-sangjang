@@ -10,6 +10,7 @@ import { AdminModule } from '@/modules/admin/admin.module';
 import { ExchangesModule } from '@/modules/exchanges/exchanges.module';
 import { ListingsModule } from '@/modules/listings/listings.module';
 import { OrchestratorModule } from '@/modules/orchestrator/orchestrator.module';
+import { TradePreferencesModule } from '@/modules/trade-preferences/trade-preferences.module';
 import { resolveDatabaseConfig } from '@/config/database.config';
 
 const databaseImports = (() => {
@@ -30,6 +31,7 @@ const databaseImports = (() => {
     ExchangesModule,
     ListingsModule,
     OrchestratorModule,
+    TradePreferencesModule,
   ];
 })();
 
