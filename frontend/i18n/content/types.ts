@@ -22,6 +22,8 @@ export interface TradeFormCopy {
   testnetToggle: string;
   autoTradeToggle: string;
   submitLabel: string;
+  savedMessage: string;
+  errorMessage: string;
 }
 
 export interface AdminCopy {
@@ -32,6 +34,8 @@ export interface AdminCopy {
   note: string;
   submit: string;
   pendingNotice: string;
+  successNotice: string;
+  errorNotice: string;
 }
 
 export interface BannerCopy {

@@ -39,8 +39,8 @@ export const koCopy: LandingCopy = {
     },
     {
       id: 6,
-      title: "15개 언어 지원",
-      description: "언어별 페이지 파일을 별도로 관리하여 현지화된 랜딩·가이드·대시보드를 제공합니다.",
+      title: "5개 언어 지원",
+      description: "5개 언어별로 페이지 파일을 분리 관리해 현지화된 랜딩·가이드·대시보드를 제공합니다.",
     },
   ],
   usageGuideTitle: "사용 가이드 & 소개",
@@ -67,6 +67,8 @@ export const koCopy: LandingCopy = {
     testnetToggle: "테스트넷 사용",
     autoTradeToggle: "상장 시 자동 진입",
     submitLabel: "설정 저장",
+    savedMessage: "설정이 저장되었습니다.",
+    errorMessage: "설정 저장에 실패했습니다. 다시 시도해주세요.",
   },
   admin: {
     requestTitle: "관리자 승인 요청",
@@ -76,6 +78,8 @@ export const koCopy: LandingCopy = {
     note: "승인 완료 전까지는 대시보드와 자동매매 기능이 제한됩니다.",
     submit: "요청 보내기",
     pendingNotice: "관리자 승인 대기 중...",
+    successNotice: "승인 요청이 접수되었습니다.",
+    errorNotice: "요청 전송에 실패했습니다. 잠시 후 다시 시도해주세요.",
   },
   realtimeTitle: "실시간 상장 피드",
   realtimeStatusIdle: "연결을 기다리는 중...",

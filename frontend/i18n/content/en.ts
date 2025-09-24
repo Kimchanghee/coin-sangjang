@@ -44,9 +44,9 @@ export const enCopy: LandingCopy = {
     },
     {
       id: 6,
-      title: "15-language experience",
+      title: "Five-language experience",
       description:
-        "Serve localized landing pages, guides, and dashboards for 15 locales with separate content files per language.",
+        "Serve localized landing pages, guides, and dashboards for 5 locales with separate content files per language.",
     },
   ],
   usageGuideTitle: "Usage Guide & Intro",
@@ -74,6 +74,8 @@ export const enCopy: LandingCopy = {
     testnetToggle: "Use Testnet",
     autoTradeToggle: "Auto-enter on listing",
     submitLabel: "Save Preferences",
+    savedMessage: "Preferences saved successfully.",
+    errorMessage: "Could not save preferences. Please try again.",
   },
   admin: {
     requestTitle: "Request Admin Approval",
@@ -84,6 +86,8 @@ export const enCopy: LandingCopy = {
     note: "Only approved users can access the dashboard and auto-trading features.",
     submit: "Submit Request",
     pendingNotice: "Waiting for admin confirmation...",
+    successNotice: "Your request has been submitted.",
+    errorNotice: "Failed to submit request. Please retry.",
   },
   realtimeTitle: "Realtime Listing Feed",
   realtimeStatusIdle: "Waiting for connection...",

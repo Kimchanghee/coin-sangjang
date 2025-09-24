@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { AdminCopy } from "@/i18n/content/types";
 
 const exchanges = [
@@ -18,15 +18,39 @@ interface AdminRequestFormProps {
   locale: string;
 }
 
-export function AdminRequestForm({ copy, locale }: AdminRequestFormProps) {
+export function AdminRequestForm({ copy }: AdminRequestFormProps) {
   const [uid, setUid] = useState("");
   const [exchange, setExchange] = useState(exchanges[0]?.value ?? "");
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<"idle" | "submitted" | "error">("idle");
+  const [saving, setSaving] = useState(false);
+
+  const apiBase = useMemo(
+    () => process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080/api",
+    [],
+  );
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSubmitted(true);
-    console.info("[admin-request]", { locale, uid, exchange });
+    setSaving(true);
+    setStatus("idle");
+    void (async () => {
+      try {
+        const response = await fetch(`${apiBase}/admin/portal/requests`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid, exchange: exchange.toUpperCase() }),
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to submit request: ${response.status}`);
+        }
+        setStatus("submitted");
+      } catch (error) {
+        console.error("[admin-request] submission failed", error);
+        setStatus("error");
+      } finally {
+        setSaving(false);
+      }
+    })();
   };
 
   return (
@@ -46,6 +70,7 @@ export function AdminRequestForm({ copy, locale }: AdminRequestFormProps) {
           onChange={(event) => setUid(event.target.value)}
           placeholder="0000-0000"
           className="w-full rounded-md border border-slate-700 bg-slate-950/70 p-2 text-slate-100 focus:border-sky-500 focus:outline-none"
+          disabled={saving}
         />
       </label>
       <label className="space-y-2 text-sm">
@@ -54,6 +79,7 @@ export function AdminRequestForm({ copy, locale }: AdminRequestFormProps) {
           value={exchange}
           onChange={(event) => setExchange(event.target.value)}
           className="w-full rounded-md border border-slate-700 bg-slate-950/70 p-2 text-slate-100 focus:border-sky-500 focus:outline-none"
+          disabled={saving}
         >
           {exchanges.map((item) => (
             <option key={item.value} value={item.value}>
@@ -66,10 +92,16 @@ export function AdminRequestForm({ copy, locale }: AdminRequestFormProps) {
       <button
         type="submit"
         className="w-full rounded-md bg-emerald-500 py-2 font-semibold text-slate-950 transition hover:bg-emerald-400"
+        disabled={saving}
       >
-        {copy.submit}
+        {saving ? `${copy.submit}…` : copy.submit}
       </button>
-      {submitted && <p className="text-xs text-amber-300">{copy.pendingNotice}</p>}
+      {status === "submitted" && (
+        <p className="text-xs text-emerald-300">{copy.successNotice}</p>
+      )}
+      {status === "error" && (
+        <p className="text-xs text-rose-300">{copy.errorNotice}</p>
+      )}
     </form>
   );
 }
