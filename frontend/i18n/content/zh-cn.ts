@@ -7,7 +7,7 @@ export const zhCnCopy: LandingCopy = {
   heroSubtitle:
     "Coin-Sangjang 实时监控 Upbit 和 Bithumb 公告，并在 Binance、Bybit、OKX、Gate.io 与 Bitget 上自动开仓。",
   ctaLabel: "从测试网开始",
-  tradeForm: {
+tradeForm: {
     ...enCopy.tradeForm,
     sectionTitle: "交易参数设置",
     leverageLabel: "杠杆倍率",
