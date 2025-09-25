@@ -56,8 +56,10 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:8080/health', (r) => {r.statusCode === 200 ? process.exit(0) : process.exit(1)})"
 
-# Build the Next.js frontend (keeping dev dependencies for the build) and then prune them.
-RUN npm run build --workspace frontend && npm prune --omit=dev
+# Build the Next.js frontend while devDependencies such as TypeScript are present,
+# then remove dev-only packages to keep the runtime layer slim.
+RUN npm run build --workspace frontend \
+  && npm prune --omit=dev
 
 # Start Next.js server for Cloud Run
 CMD ["npm", "run", "start", "--workspace", "frontend"]
