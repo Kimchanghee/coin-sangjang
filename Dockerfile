@@ -18,8 +18,8 @@ COPY services/trade-orchestrator/package*.json ./services/trade-orchestrator/
 COPY services/risk-manager/package*.json ./services/risk-manager/
 COPY packages/shared/package*.json ./packages/shared/
 
-# Install dependencies
-RUN npm install --legacy-peer-deps
+# Install dependencies (keep dev packages available for build tooling)
+RUN npm_config_production=false npm install --legacy-peer-deps
 
 # Production stage
 FROM node:${NODE_VERSION}-alpine
@@ -55,10 +55,14 @@ EXPOSE 8080
 # Health check endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:8080/health', (r) => {r.statusCode === 200 ? process.exit(0) : process.exit(1)})"
-# Build Ne
 
-# Start Next.js server for Cloud Run# Build Next.js frontend and trim dev dependencies afterwards
-RUN npm run build --workspace frontend && npm prune --omit=dev
+# Build the Next.js frontend while devDependencies such as TypeScript remain
+# available, then prune them so the final image stays lean.
+RUN npm run build --workspace frontend \
+  && npm prune --omit=dev
+
+# Start Next.js server for Cloud Run
+CMD ["npm", "run", "start", "--workspace", "frontend"]
 
 # Start Next.js server for Cloud Run
 CMD ["npm", "run", "start", "--workspace", "frontend"]
