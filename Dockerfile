@@ -18,8 +18,8 @@ COPY services/trade-orchestrator/package*.json ./services/trade-orchestrator/
 COPY services/risk-manager/package*.json ./services/risk-manager/
 COPY packages/shared/package*.json ./packages/shared/
 
-# Install dependencies
-RUN npm install --legacy-peer-deps
+# Install dependencies (keep dev packages available for build tooling)
+RUN npm_config_production=false npm install --legacy-peer-deps
 
 # Production stage
 FROM node:${NODE_VERSION}-alpine
