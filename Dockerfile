@@ -63,3 +63,6 @@ RUN npm run build --workspace frontend \
 
 # Start Next.js server for Cloud Run
 CMD ["npm", "run", "start", "--workspace", "frontend"]
+
+# Start Next.js server for Cloud Run
+CMD ["npm", "run", "start", "--workspace", "frontend"]
