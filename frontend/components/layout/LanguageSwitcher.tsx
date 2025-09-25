@@ -2,7 +2,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { localeLabels, locales, type Locale } from "@/i18n/locales";
+import { defaultLocale, localeLabels, locales, type Locale } from "@/i18n/locales";
 
 interface LanguageSwitcherProps {
   currentLocale: Locale;
@@ -28,11 +28,19 @@ export function LanguageSwitcher({
 
   const safePathname = pathname ?? "/";
   const segments = safePathname.split("/").filter(Boolean);
-  const potentialLocale = segments[0];
-  const matchesKnownLocale = locales.includes(potentialLocale as Locale);
-  const restSegments = matchesKnownLocale ? segments.slice(1) : segments;
+  const currentLocaleFromPath = locales.includes(segments[0] as Locale)
+    ? (segments[0] as Locale)
+    : null;
+  const restSegments = currentLocaleFromPath ? segments.slice(1) : segments;
   const suffix = restSegments.join("/");
-  const normalizedPath = (suffix ? `/${suffix}` : "/") as Route;
+
+  const buildHref = (locale: Locale): Route => {
+    const pathSuffix = suffix ? `/${suffix}` : "";
+    if (locale === defaultLocale) {
+      return (pathSuffix || "/") as Route;
+    }
+    return (`/${locale}${pathSuffix}` || "/") as Route;
+  };
 
   return (
     <nav
@@ -46,8 +54,7 @@ export function LanguageSwitcher({
         return (
           <Link
             key={locale}
-            href={normalizedPath}
-            locale={locale}
+            href={buildHref(locale)}
             aria-current={isActive ? "page" : undefined}
             className={`rounded-full px-3 py-1 font-medium transition ${
               isActive
