@@ -19,7 +19,7 @@ COPY services/risk-manager/package*.json ./services/risk-manager/
 COPY packages/shared/package*.json ./packages/shared/
 
 # Install dependencies
-RUN npm install --legacy-peer-deps --omit=dev
+RUN npm install --legacy-peer-deps
 
 # Production stage
 FROM node:${NODE_VERSION}-alpine
@@ -46,6 +46,7 @@ RUN echo "PORT=8080" > backend/.env && \
 
 # Cloud Run requires PORT environment variable
 ENV PORT=8080
+ENV HOSTNAME=0.0.0.0
 ENV NODE_ENV=production
 
 # Expose port
@@ -55,5 +56,8 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:8080/health', (r) => {r.statusCode === 200 ? process.exit(0) : process.exit(1)})"
 
-# Start simple HTTP server for Cloud Run
-CMD ["node", "server.js"]
+# Build Next.js frontend and trim dev dependencies afterwards
+RUN npm run build --workspace frontend && npm prune --omit=dev
+
+# Start Next.js server for Cloud Run
+CMD ["npm", "run", "start", "--workspace", "frontend"]
