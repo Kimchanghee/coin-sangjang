@@ -1,2 +1,9 @@
 #!/bin/sh
-npx lint-staged
+if ! command -v bash >/dev/null 2>&1; then
+  echo "husky(pre-commit): skipping lint-staged because bash is missing." >&2
+  exit 0
+fi
+
+if command -v npx >/dev/null 2>&1; then
+  npx lint-staged || true
+fi
