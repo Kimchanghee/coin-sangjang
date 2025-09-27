@@ -77,10 +77,18 @@ export function LandingPage({ copy, locale }: LandingPageProps) {
     </div>
   );
 
-  const apiBase = useMemo(
-    () => process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080/api",
-    [],
-  );
+  const apiBase = useMemo(() => {
+    const envValue = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
+    if (envValue && envValue.length > 0) {
+      return envValue.replace(/\/$/, "");
+    }
+
+    if (typeof window !== "undefined") {
+      return `${window.location.origin}/api`;
+    }
+
+    return "/api";
+  }, []);
 
   const { events, connected, lastSyncedAt } = useListingStream(apiBase, {
     fallbackEvents: FALLBACK_EVENTS,
